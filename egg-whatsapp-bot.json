@@ -5,9 +5,9 @@
     "update_url": null
   },
   "exported_at": "2026-05-06T00:00:00+00:00",
-  "name": "WhatsApp Baileys Bot",
+  "name": "Yuzuki MD v2",
   "author": "your@email.com",
-  "description": "A lightweight WhatsApp bot built with Baileys. Scan the QR code in the console to connect. Settings and custom commands are saved in data/settings.json.",
+  "description": "Yuzuki MD v2 \u2014 WhatsApp bot built with Baileys. Uses pairing code authentication (no QR scan needed). Set PHONE_NUMBER in variables, start the server, then link via WhatsApp \u2192 Settings \u2192 Linked Devices \u2192 Link with phone number.",
   "features": null,
   "docker_images": {
     "ghcr.io/pterodactyl/yolks:nodejs_22": "ghcr.io/pterodactyl/yolks:nodejs_22",
@@ -17,13 +17,13 @@
   "startup": "node src/index.js",
   "config": {
     "files": "{}",
-    "startup": "{\"done\": \"Starting WhatsApp bot\"}",
+    "startup": "{\"done\": \"Starting bot\"}",
     "logs": "{}",
     "stop": "^C"
   },
   "scripts": {
     "installation": {
-      "script": "#!/bin/bash\n# WhatsApp Baileys Bot - Pterodactyl Install Script\napt-get update -y\napt-get install -y git curl\n\n# Install Node.js 22 if not already present\nif ! command -v node &> /dev/null; then\n  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -\n  apt-get install -y nodejs\nfi\n\nnode -v\nnpm -v\n\n# Install dependencies\ncd /home/container\nnpm install\n\necho \"Installation complete! Start the server to get the QR code.\"",
+      "script": "#!/bin/bash\n# Yuzuki MD v2 - Pterodactyl Install Script\napt-get update -y\napt-get install -y git curl ffmpeg python3 build-essential libfontconfig1 libfreetype6\n\n# Install Node.js 22 if not already present\nif ! command -v node &> /dev/null; then\n  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -\n  apt-get install -y nodejs\nfi\n\nnode -v\nnpm -v\n\n# Install dependencies\ncd /home/container\nnpm install\n\necho \"Installation complete! Start the server to get your pairing code.\"",
       "container": "ghcr.io/pterodactyl/installers:debian",
       "entrypoint": "bash"
     }
@@ -31,7 +31,7 @@
   "variables": [
     {
       "name": "Phone Number",
-      "description": "Your WhatsApp phone number in full international format, digits only. Example: 628123456789 (no +, spaces, or dashes). This is used to generate the pairing code shown in the console on first start.",
+      "description": "Your WhatsApp phone number in full international format, digits only. Example: 628123456789 (no +, spaces, or dashes). The bot will display a pairing code in the console \u2014 enter it in WhatsApp \u2192 Settings \u2192 Linked Devices \u2192 Link with phone number.",
       "env_variable": "PHONE_NUMBER",
       "default_value": "",
       "user_viewable": true,
@@ -47,6 +47,36 @@
       "user_viewable": true,
       "user_editable": true,
       "rules": "required|string|in:trace,debug,info,warn,error",
+      "field_type": "text"
+    },
+    {
+      "name": "OpenAI API Key",
+      "description": "Optional. Enables .gpt and other OpenAI-powered commands. Get from platform.openai.com",
+      "env_variable": "OPENAI_API_KEY",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Anthropic API Key",
+      "description": "Optional. Enables .claude command. Get from console.anthropic.com",
+      "env_variable": "ANTHROPIC_API_KEY",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Gemini API Key",
+      "description": "Optional. Enables .gemini command. Get from aistudio.google.com",
+      "env_variable": "GEMINI_API_KEY",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
       "field_type": "text"
     },
     {
