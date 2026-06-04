@@ -145,7 +145,17 @@ export const CATEGORIES = {
 };
 
 // ── Main menu caption (.menu with no args) ─────────────────────────────────────
-export function buildMain(botName, prefix) {
+// runtime: { pushname, userRank, uptimeStr, totalUsers, totalCmds, ownerNumber }
+export function buildMain(botName, prefix, runtime = {}) {
+  const {
+    pushname = "User",
+    userRank = "User 🌟",
+    uptimeStr = "-",
+    totalUsers = 0,
+    totalCmds = 0,
+    ownerNumber = "",
+  } = runtime;
+
   const catLines = Object.entries(CATEGORIES)
     .map(([key, cat]) => `│  ${cat.icon}  *${prefix}menu ${key}*  —  ${cat.commands.length} cmds`)
     .join("\n");
@@ -153,9 +163,16 @@ export function buildMain(botName, prefix) {
   return (
 `✨━━━〔 🤖 *${botName}* 〕━━━✨
 
-╭─〔 ℹ️ *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕─╮
-│ 𝗣𝗿𝗲𝗳𝗶𝘅 : *${prefix}*
-│ 𝗨𝘀𝗮𝗴𝗲  : *${prefix}menu <category>*
+╭─〔 👤 *𝐔𝐬𝐞𝐫 𝐈𝐧𝐟𝐨* 〕─╮
+│ 𝗡𝗮𝗺𝗲 : *${pushname}*
+│ 𝗥𝗮𝗻𝗸 : *${userRank}*
+╰──────────────────────╯
+
+╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕─╮
+│ 𝗣𝗿𝗲𝗳𝗶𝘅    : *${prefix}*
+│ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲  : *${uptimeStr}*
+│ 👥 𝗨𝘀𝗲𝗿𝘀   : *${totalUsers}*
+│ ⚒️ 𝗙𝗲𝗮𝘁𝘂𝗿𝗲𝘀 : *${totalCmds} cmds*
 ╰──────────────────────╯
 
 ✨━━━〔 📂 *𝐌𝐞𝐧𝐮 𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━━✨
@@ -163,9 +180,13 @@ export function buildMain(botName, prefix) {
 ${catLines}
 ╰──────────────────────────╯
 
+╭─〔 📱 *𝐒𝐨𝐜𝐢𝐚𝐥 𝐌𝐞𝐝𝐢𝐚* 〕─╮
+│ 👤 𝗪𝗔  : wa.me/${ownerNumber}
+│ 📢 𝗖𝗵  : whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326
+╰──────────────────╯
+
 ╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕─╮
-│ Tap a category below or type
-│ *${prefix}menu <category>* to open it
+│ Type *${prefix}menu <category>* to open it
 ╰──────────────────╯
 
 > _Made with ♥ by Aizen_`
