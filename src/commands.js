@@ -157,13 +157,17 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
     : null;
 
-  // FIX #1: replyChannel now falls back to plain reply if newsletter quote throws
+  // replyChannel: use channel quote if configured; if it throws the message
+  // was already delivered (newsletter ack error), so do NOT retry to avoid duplicates.
+  // If no channel quote is set, fall straight to a plain reply.
   const replyChannel = async (text) => {
+    if (!channelQuote) {
+      return sock.sendMessage(jid, { text }, { quoted: msg });
+    }
     try {
-      await sock.sendMessage(jid, { text }, { quoted: channelQuote ?? msg });
+      await sock.sendMessage(jid, { text }, { quoted: channelQuote });
     } catch {
-      // Newsletter quote failed — fall back to standard reply
-      await sock.sendMessage(jid, { text }, { quoted: msg });
+      // Channel ack failed — message already sent, skip retry to prevent double reply
     }
   };
 
