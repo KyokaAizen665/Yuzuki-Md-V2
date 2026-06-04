@@ -146,13 +146,26 @@ export async function startBot() {
 
   // Request pairing code if not yet registered
   if (!sock.authState.creds.registered) {
-    // Prompt user for their phone number (interactive)
+    // Use PHONE_NUMBER env (headless / cloud mode) or fall back to interactive prompt.
+    // On Railway / Render / Fly.io / Docker stdin is not a TTY — promptPhone() would
+    // hang for 60 seconds then crash.  If PHONE_NUMBER is set we skip the prompt.
     let phoneNumber;
-    try {
-      phoneNumber = await promptPhone();
-    } catch (err) {
-      console.log(`\n[!] ${err.message}\n`);
-      return;
+    const _envPhone = (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
+    if (_envPhone) {
+      phoneNumber = _envPhone;
+      const line = "=".repeat(44);
+      console.log(`\n${line}`);
+      console.log("  🔗 WhatsApp Pairing Setup (headless mode)");
+      console.log(`  📱 Using PHONE_NUMBER from env: ${phoneNumber}`);
+      console.log(`  A pairing code will appear below — enter it in WhatsApp.`);
+      console.log(`${line}`);
+    } else {
+      try {
+        phoneNumber = await promptPhone();
+      } catch (err) {
+        console.log(`\n[!] ${err.message}\n`);
+        return;
+      }
     }
 
     // Save as ownerNumber automatically
