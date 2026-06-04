@@ -28,7 +28,6 @@ import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./me
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import sharp from "sharp";
 import QRCode from "qrcode";
 import ytdl from "@distube/ytdl-core";
 import { createRequire } from "module";
@@ -1167,13 +1166,13 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       case "sticker": {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.imageMessage){await reply(`Reply to an image with ${prefix}sticker`);break;}
-        try{const webp=await sharp(dl.buf).resize(512,512,{fit:"contain",background:{r:0,g:0,b:0,alpha:0}}).webp({quality:80}).toBuffer();await sock.sendMessage(jid,{sticker:webp},{quoted:msg});}catch(e){await reply(`❌ Sticker: ${e.message}`);}
+        try{const { default: sharp } = await import("sharp"); const webp=await sharp(dl.buf).resize(512,512,{fit:"contain",background:{r:0,g:0,b:0,alpha:0}}).webp({quality:80}).toBuffer();await sock.sendMessage(jid,{sticker:webp},{quoted:msg});}catch(e){await reply(`❌ Sticker: ${e.message}`);}
         break;
       }
 
       case "toimg": {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.stickerMessage){await reply(`Reply to a sticker with ${prefix}toimg`);break;}
-        try{const png=await sharp(dl.buf).png().toBuffer();await sock.sendMessage(jid,{image:png,caption:"🖼️ Converted from sticker"},{quoted:msg});}catch(e){await reply(`❌ toimg: ${e.message}`);}
+        try{const { default: sharp } = await import("sharp"); const png=await sharp(dl.buf).png().toBuffer();await sock.sendMessage(jid,{image:png,caption:"🖼️ Converted from sticker"},{quoted:msg});}catch(e){await reply(`❌ toimg: ${e.message}`);}
         break;
       }
 
@@ -1217,14 +1216,14 @@ export async function handleCommand({ sock, msg, command, args }) {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.imageMessage){await reply(`Reply to an image with ${prefix}crop <WxH+X+Y>`);break;}
         const spec=args[0];if(!spec){await reply(`Usage: ${prefix}crop <WxH+X+Y>  e.g. 200x200+0+0`);break;}
         const m=spec.match(/(\d+)x(\d+)(?:\+(\d+)\+(\d+))?/);if(!m){await reply("Invalid format. Example: 200x200+0+0");break;}
-        try{const out=await sharp(dl.buf).extract({width:parseInt(m[1]),height:parseInt(m[2]),left:parseInt(m[3]||0),top:parseInt(m[4]||0)}).toBuffer();await sock.sendMessage(jid,{image:out,caption:`✂️ Cropped: ${spec}`},{quoted:msg});}catch(e){await reply(`❌ Crop: ${e.message}`);}
+        try{const { default: sharp } = await import("sharp"); const out=await sharp(dl.buf).extract({width:parseInt(m[1]),height:parseInt(m[2]),left:parseInt(m[3]||0),top:parseInt(m[4]||0)}).toBuffer();await sock.sendMessage(jid,{image:out,caption:`✂️ Cropped: ${spec}`},{quoted:msg});}catch(e){await reply(`❌ Crop: ${e.message}`);}
         break;
       }
       case "resize": {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.imageMessage){await reply(`Reply to an image with ${prefix}resize <WxH>`);break;}
         const spec=args[0];if(!spec){await reply(`Usage: ${prefix}resize <WxH>  e.g. 512x512`);break;}
         const m=spec.match(/(\d+)x(\d+)/);if(!m){await reply("Invalid format. Example: 512x512");break;}
-        try{const out=await sharp(dl.buf).resize(parseInt(m[1]),parseInt(m[2]),{fit:"fill"}).toBuffer();await sock.sendMessage(jid,{image:out,caption:`🔄 Resized: ${spec}`},{quoted:msg});}catch(e){await reply(`❌ Resize: ${e.message}`);}
+        try{const { default: sharp } = await import("sharp"); const out=await sharp(dl.buf).resize(parseInt(m[1]),parseInt(m[2]),{fit:"fill"}).toBuffer();await sock.sendMessage(jid,{image:out,caption:`🔄 Resized: ${spec}`},{quoted:msg});}catch(e){await reply(`❌ Resize: ${e.message}`);}
         break;
       }
 
@@ -2049,7 +2048,7 @@ export async function handleCommand({ sock, msg, command, args }) {
         try {
           const dl = await dlQuoted(msg, jid);
           if (!dl?.buf) return reply("❌ Reply to a sticker to convert to image.");
-          const img = await sharp(dl.buf).png().toBuffer();
+          const { default: sharp } = await import("sharp"); const img = await sharp(dl.buf).png().toBuffer();
           await sock.sendMessage(jid, { image: img, caption: "✅ Converted to image." }, { quoted: msg });
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
