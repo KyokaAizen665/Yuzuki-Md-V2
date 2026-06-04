@@ -1,4 +1,3 @@
-import { createCanvas, registerFont, loadImage } from "@napi-rs/canvas";
 import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -7,14 +6,27 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
-// Register fonts if available
-const fontDir = path.join(path.dirname(new URL(import.meta.url).pathname), "../../media/font");
-for (const [file, family] of [
-  ["Aptos.ttf", "Aptos"],
-  ["SFUIDisplay-Semibold.otf", "SFUI"],
-]) {
-  const fp = path.join(fontDir, file);
-  try { if (fs.existsSync(fp)) registerFont(fp, { family }); } catch {}
+// Lazy canvas loader — prevents crash if @napi-rs/canvas native binary is
+// unavailable on the host (e.g. Pterodactyl containers with mismatched glibc).
+let _canvasMod = null;
+let _fontsRegistered = false;
+
+async function getCanvas() {
+  if (!_canvasMod) {
+    _canvasMod = await import("@napi-rs/canvas");
+    if (!_fontsRegistered) {
+      const fontDir = path.join(path.dirname(new URL(import.meta.url).pathname), "../../media/font");
+      for (const [file, family] of [
+        ["Aptos.ttf", "Aptos"],
+        ["SFUIDisplay-Semibold.otf", "SFUI"],
+      ]) {
+        const fp = path.join(fontDir, file);
+        try { if (fs.existsSync(fp)) _canvasMod.registerFont(fp, { family }); } catch {}
+      }
+      _fontsRegistered = true;
+    }
+  }
+  return _canvasMod;
 }
 
 const CONFIG = {
@@ -25,7 +37,8 @@ const CONFIG = {
   minFontSize: 10,
 };
 
-function getFinalFontSize(text, width = 512, height = 512) {
+async function getFinalFontSize(text, width = 512, height = 512) {
+  const { createCanvas } = await getCanvas();
   const maxW = width - CONFIG.padding * 2;
   const maxH = height - CONFIG.padding * 2;
   const canvas = createCanvas(width, height);
@@ -54,7 +67,8 @@ function getFinalFontSize(text, width = 512, height = 512) {
   return CONFIG.minFontSize;
 }
 
-function drawFrame(text, fontSize, width = 512, height = 512) {
+async function drawFrame(text, fontSize, width = 512, height = 512) {
+  const { createCanvas } = await getCanvas();
   const maxW = width - CONFIG.padding * 2;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
@@ -91,8 +105,8 @@ function drawFrame(text, fontSize, width = 512, height = 512) {
 }
 
 export async function makeBrat(text) {
-  const fontSize = getFinalFontSize(text);
-  const raw = drawFrame(text, fontSize);
+  const fontSize = await getFinalFontSize(text);
+  const raw = await drawFrame(text, fontSize);
 
   // Apply blur effect using sharp if available
   try {
@@ -112,12 +126,12 @@ export async function makeBratVid(text, packname = "Bot", author = "Bot") {
   const id = crypto.randomBytes(4).toString("hex");
   const outPath = path.join(tmpDir, `brat_${id}.webp`);
 
-  const fontSize = getFinalFontSize(text);
+  const fontSize = await getFinalFontSize(text);
 
   // Build frames
   const frames = [];
   for (let i = 0; i <= 10; i++) {
-    const buf = drawFrame(text, fontSize);
+    const buf = await drawFrame(text, fontSize);
     const fp = path.join(tmpDir, `frame_${id}_${i}.png`);
     fs.writeFileSync(fp, buf);
     frames.push(fp);
@@ -135,6 +149,7 @@ export async function makeBratVid(text, packname = "Bot", author = "Bot") {
 }
 
 export async function makeQC(text, name, ppUrl) {
+  const { createCanvas, loadImage } = await getCanvas();
   const W = 512, H = 110;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
@@ -243,6 +258,7 @@ export async function makeWelcomeCard({
   bgUrl = null,
   type = "welcome",
 } = {}) {
+  const { createCanvas, loadImage } = await getCanvas();
   const W = 900, H = 300;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
