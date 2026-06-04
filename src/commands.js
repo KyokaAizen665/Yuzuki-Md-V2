@@ -1791,13 +1791,27 @@ export async function handleCommand({ sock, msg, command, args }) {
           const caption = `🎵 *TikTok Downloader*\n\n👤 *Author:* ${author}\n📝 *Title:* ${title}\n\n📊 Views: ${stats.views} | ❤️ ${stats.likes} | 💬 ${stats.comment} | 🔄 ${stats.share}`;
 
           if (images.length > 0) {
-            // Send as media album
-            for (let i = 0; i < Math.min(images.length, 10); i++) {
-              await sock.sendMessage(jid, {
-                image: { url: images[i].url },
-                caption: i === 0 ? caption : `📸 Slide ${i + 1}/${images.length}`,
-              }, { quoted: msg });
-            }
+            const cards = await Promise.all(images.slice(0, 10).map(async (v, i) => ({
+              header: proto.Message.InteractiveMessage.Header.create({
+                ...(await prepareWAMessageMedia({ image: { url: v.url } }, { upload: sock.waUploadToServer })),
+                title: '',
+                subtitle: `Slide ${i + 1}/${images.length}`,
+                hasMediaAttachment: true
+              }),
+              body: { text: '' },
+              nativeFlowMessage: { buttons: [] }
+            })));
+            const carouselMsg = generateWAMessageFromContent(jid, {
+              viewOnceMessage: {
+                message: {
+                  interactiveMessage: {
+                    body: { text: caption },
+                    carouselMessage: { cards, messageVersion: 1 }
+                  }
+                }
+              }
+            }, { quoted: msg });
+            await sock.relayMessage(jid, carouselMsg.message, { messageId: carouselMsg.key.id });
           } else if (videoObj?.url) {
             await sock.sendMessage(jid, { video: { url: videoObj.url }, caption }, { quoted: msg });
           }
@@ -1983,12 +1997,27 @@ export async function handleCommand({ sock, msg, command, args }) {
         try {
           const images = await searchPinterestAPI(text, 10);
           if (!images?.length) throw new Error("No images found.");
-          for (let i = 0; i < images.length; i++) {
-            await sock.sendMessage(jid, {
-              image: { url: images[i] },
-              caption: i === 0 ? `📌 *Pinterest Search*\n\n🔎 Query: _${text}_\n📷 Showing ${images.length} results` : `📌 Image ${i + 1}/${images.length}`,
-            }, { quoted: msg });
-          }
+          const cards = await Promise.all(images.slice(0, 10).map(async (url, i) => ({
+            header: proto.Message.InteractiveMessage.Header.create({
+              ...(await prepareWAMessageMedia({ image: { url } }, { upload: sock.waUploadToServer })),
+              title: '',
+              subtitle: `Image ${i + 1} of ${images.length}`,
+              hasMediaAttachment: true
+            }),
+            body: { text: '' },
+            nativeFlowMessage: { buttons: [] }
+          })));
+          const carouselMsg = generateWAMessageFromContent(jid, {
+            viewOnceMessage: {
+              message: {
+                interactiveMessage: {
+                  body: { text: `📌 *Pinterest Search*\n\n🔎 Query: _${text}_\n📷 ${images.length} results` },
+                  carouselMessage: { cards, messageVersion: 1 }
+                }
+              }
+            }
+          }, { quoted: msg });
+          await sock.relayMessage(jid, carouselMsg.message, { messageId: carouselMsg.key.id });
           useLimit(sender, pinCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
