@@ -20,6 +20,12 @@ primary_region = "sjc"
   cpu_kind = "shared"
   cpus = 1
 
-[mounts]
+# Persistent volume for WhatsApp session files
+[[mounts]]
   source = "yuzuki_session"
   destination = "/app/bot_session"
+
+# Persistent volume for settings, database, and group data
+[[mounts]]
+  source = "yuzuki_data"
+  destination = "/app/data"
