@@ -252,9 +252,31 @@ export async function handleCommand({ sock, msg, command, args }) {
         break;
       }
 
-      // ── Main menu: try native WhatsApp list carousel, fall back to styled text ──
-      const listPayload = buildListPayload(botName, prefix);
+      // ── Main menu: image + rich caption with live stats ──────────────────
+      // Gather runtime data
+      const db = loadDB();
+      const totalUsers = Object.keys(db.users ?? {}).length;
+      const totalCmds = Object.values(CATEGORIES).reduce((a, c) => a + c.commands.length, 0);
+      const uptimeMs = Date.now() - startTime;
+      const uptimeSec = Math.floor(uptimeMs / 1000);
+      const uptimeMin = Math.floor(uptimeSec / 60);
+      const uptimeHr = Math.floor(uptimeMin / 60);
+      const uptimeDays = Math.floor(uptimeHr / 24);
+      const uptimeStr = `${uptimeDays}d ${uptimeHr % 24}h ${uptimeMin % 60}m ${uptimeSec % 60}s`;
+      const pushname = msg.pushName ?? "User";
+      const userRank = isOwner(senderJid, settings) ? "Owner 👑" : "User 🌟";
+      const ownerNumber = (settings.ownerNumber ?? "").replace(/\D/g, "");
+
+      const menuCaption = buildMain(botName, prefix, { pushname, userRank, uptimeStr, totalUsers, totalCmds, ownerNumber });
+      const imageUrl = settings.menuBgUrl || MENU_BG;
+
       const vq = getVerifiedQuoted(settings);
+      let menuThumb;
+      try {
+        const tr = await fetch(imageUrl);
+        menuThumb = Buffer.from(await tr.arrayBuffer());
+      } catch { menuThumb = undefined; }
+
       const menuCtx = {
         forwardingScore: 2025,
         isForwarded: true,
@@ -265,32 +287,29 @@ export async function handleCommand({ sock, msg, command, args }) {
             newsletterName: settings.channelName,
           },
         } : {}),
+        externalAdReply: {
+          title: botName,
+          body: `${botName} Bot`,
+          mediaType: 1,
+          previewType: 0,
+          thumbnail: menuThumb,
+          thumbnailUrl: imageUrl,
+          renderLargerThumbnail: false,
+          sourceUrl: "t.me//aizesuigetsu",
+          mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
+        },
         quotedMessage: vq.message,
         participant: vq.key.participant,
         remoteJid: vq.key.remoteJid,
       };
 
       try {
-        // Native interactive list message (carousel cards per category)
-        await sock.sendMessage(jid, {
-          listMessage: {
-            title: listPayload.title,
-            description: listPayload.text,
-            footerText: listPayload.footer,
-            buttonText: listPayload.buttonText,
-            listType: listPayload.listType,
-            sections: listPayload.sections,
-          },
-        });
+        await sock.sendMessage(jid, { image: { url: imageUrl }, caption: menuCaption, contextInfo: menuCtx });
       } catch {
-        // Fallback: styled text with contextInfo
         try {
-          await sock.sendMessage(jid, {
-            text: listPayload.text,
-            contextInfo: menuCtx,
-          });
+          await sock.sendMessage(jid, { text: menuCaption, contextInfo: menuCtx });
         } catch {
-          await reply(listPayload.text);
+          await reply(menuCaption);
         }
       }
       break;
