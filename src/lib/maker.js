@@ -214,3 +214,123 @@ export async function toSticker(buffer, packname = "Bot", author = "Bot") {
     return result;
   }
 }
+
+
+// ── Welcome / Goodbye card generator ─────────────────────────────────────────
+// Builds a 900x300 card: background (or gradient) + circular avatar + text.
+// Used by src/lib/group.js when a member joins or leaves a group.
+
+function _drawGradientBg(ctx, W, H, type) {
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  if (type === "welcome") {
+    g.addColorStop(0, "#0f2027");
+    g.addColorStop(0.5, "#203a43");
+    g.addColorStop(1, "#2c5364");
+  } else {
+    g.addColorStop(0, "#200122");
+    g.addColorStop(0.5, "#6f0000");
+    g.addColorStop(1, "#200122");
+  }
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+export async function makeWelcomeCard({
+  avatarUrl = null,
+  name = "User",
+  groupName = "Group",
+  memberCount = 0,
+  bgUrl = null,
+  type = "welcome",
+} = {}) {
+  const W = 900, H = 300;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // Background
+  if (bgUrl) {
+    try {
+      const bg = await loadImage(bgUrl);
+      ctx.drawImage(bg, 0, 0, W, H);
+    } catch {
+      _drawGradientBg(ctx, W, H, type);
+    }
+  } else {
+    _drawGradientBg(ctx, W, H, type);
+  }
+  ctx.fillStyle = type === "welcome" ? "rgba(0,0,0,0.58)" : "rgba(10,0,0,0.65)";
+  ctx.fillRect(0, 0, W, H);
+
+  // Avatar
+  const AX = 150, AY = 150, RADIUS = 100;
+  const ringColor = type === "welcome" ? "rgba(0,229,255,0.75)" : "rgba(255,107,107,0.75)";
+
+  ctx.beginPath();
+  ctx.arc(AX, AY, RADIUS + 6, 0, Math.PI * 2);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(AX, AY, RADIUS + 2, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(AX, AY, RADIUS, 0, Math.PI * 2);
+  ctx.clip();
+  try {
+    const avatar = await loadImage(avatarUrl ?? "");
+    ctx.drawImage(avatar, AX - RADIUS, AY - RADIUS, RADIUS * 2, RADIUS * 2);
+  } catch {
+    const ag = ctx.createRadialGradient(AX, AY - 20, 5, AX, AY, RADIUS);
+    ag.addColorStop(0, "#5a7bff");
+    ag.addColorStop(1, "#1a2a6c");
+    ctx.fillStyle = ag;
+    ctx.fillRect(AX - RADIUS, AY - RADIUS, RADIUS * 2, RADIUS * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.beginPath(); ctx.arc(AX, AY - 28, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(AX, AY + 72, 58, Math.PI, 0); ctx.fill();
+  }
+  ctx.restore();
+
+  // Text
+  const TX = 290;
+  const label    = type === "welcome" ? "\u2736  WELCOME  \u2736" : "\u2736  GOODBYE  \u2736";
+  const labelClr = type === "welcome" ? "#00e5ff" : "#ff6b6b";
+
+  ctx.font = `bold 36px SFUI, Arial`;
+  ctx.fillStyle   = labelClr;
+  ctx.shadowColor = labelClr;
+  ctx.shadowBlur  = 14;
+  ctx.fillText(label, TX, 78);
+
+  ctx.shadowBlur  = 6;
+  ctx.shadowColor = "rgba(0,0,0,0.8)";
+  ctx.font = `bold 30px SFUI, Arial`;
+  ctx.fillStyle = "#ffffff";
+  const displayName = name.length > 22 ? name.slice(0, 22) + "..." : name;
+  ctx.fillText(displayName, TX, 128);
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(TX, 144); ctx.lineTo(W - 30, 144); ctx.stroke();
+
+  ctx.font = `22px SFUI, Arial`;
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  const dispGroup = groupName.length > 32 ? groupName.slice(0, 32) + "..." : groupName;
+  ctx.fillText("Group: " + dispGroup, TX, 182);
+
+  ctx.font = `20px SFUI, Arial`;
+  ctx.fillStyle = "rgba(180,210,255,0.68)";
+  const memberText = type === "welcome"
+    ? "Member #" + memberCount
+    : memberCount + " members remaining";
+  ctx.fillText(memberText, TX, 222);
+
+  ctx.shadowBlur = 0;
+  return canvas.toBuffer("image/png");
+}
