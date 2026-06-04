@@ -2,7 +2,7 @@ services:
   - type: web
     name: yuzuki-md
     runtime: node
-    buildCommand: npm ci
+    buildCommand: npm install
     startCommand: node src/index.js
     healthCheckPath: /health
     envVars:
@@ -16,7 +16,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+    # Persistent disk — mounts /app/data (settings.json, database.json, groups.json)
+    # The bot session is stored in /app/bot_session; you can add a second disk if needed.
     disk:
       name: yuzuki-data
-      mountPath: /app/bot_session
+      mountPath: /app/data
       sizeGB: 1
