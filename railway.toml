@@ -6,7 +6,5 @@ dockerfilePath = "Dockerfile"
 startCommand = "node src/index.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
-
-[healthcheck]
-path = "/health"
-timeout = 30
+# Railway health check — configure via Railway Dashboard > Service > Settings > Health Check
+# or set the env var RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
