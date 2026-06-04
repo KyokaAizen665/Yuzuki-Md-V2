@@ -14,6 +14,7 @@ import pino from "pino";
 import chalk from "chalk";
 import { loadSettings, setSetting } from "./settings.js";
 import { handleCommand } from "./commands.js";
+import { participantsUpdate } from "./lib/group.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = path.resolve(__dirname, "../bot_session");
@@ -264,6 +265,12 @@ export async function startBot() {
   });
 
   sock.ev.on("creds.update", saveCreds);
+
+  // ── Group participant events: welcome / goodbye cards ─────────────────
+  sock.ev.on("group-participants.update",
+    (update) => participantsUpdate(sock, update)
+  );
+
 
   // FIX: Remove old listener before adding new one to prevent duplicates
   if (messageHandler) {
