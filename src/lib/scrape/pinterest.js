@@ -1,36 +1,37 @@
 import https from "https";
 
-function getInitialAuth() {
+async function getAuth() {
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: "id.pinterest.com",
-      path: "/",
-      method: "GET",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/142.0.0.0 Safari/537.36",
+    https.get(
+      {
+        hostname: "www.pinterest.com",
+        path: "/",
+        method: "GET",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        },
       },
-    };
-    https.get(options, (res) => {
-      const cookies = res.headers["set-cookie"];
-      if (cookies) {
+      (res) => {
+        const cookies = res.headers["set-cookie"] || [];
         const csrfCookie = cookies.find((c) => c.startsWith("csrftoken="));
         const sessCookie = cookies.find((c) => c.startsWith("_pinterest_sess="));
         if (csrfCookie && sessCookie) {
           const csrftoken = csrfCookie.split(";")[0].split("=")[1];
-          const sess = sessCookie.split(";")[0];
-          resolve({ csrftoken, cookieHeader: `csrftoken=${csrftoken}; ${sess}` });
-          return;
+          const cookieHeader =
+            csrfCookie.split(";")[0] + "; " + sessCookie.split(";")[0];
+          resolve({ csrftoken, cookieHeader });
+        } else {
+          reject(new Error("Could not get Pinterest auth cookies."));
         }
       }
-      reject(new Error("Failed to get Pinterest CSRF token."));
-    }).on("error", reject);
+    ).on("error", reject);
   });
 }
 
-export async function searchPinterestAPI(query, limit = 25) {
-  const { csrftoken, cookieHeader } = await getInitialAuth();
-  let results = [];
+export async function searchPinterest(query, limit = 10) {
+  const { csrftoken, cookieHeader } = await getAuth();
+  const results = [];
   let bookmark = null;
 
   while (results.length < limit) {
@@ -38,55 +39,66 @@ export async function searchPinterestAPI(query, limit = 25) {
       options: {
         query,
         scope: "pins",
+        page_size: 25,
         bookmarks: bookmark ? [bookmark] : [],
       },
       context: {},
     };
     const sourceUrl = `/search/pins/?q=${encodeURIComponent(query)}`;
-    const dataString = `source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(JSON.stringify(postData))}`;
+    const body =
+      `source_url=${encodeURIComponent(sourceUrl)}` +
+      `&data=${encodeURIComponent(JSON.stringify(postData))}`;
 
-    const responseData = await new Promise((resolve, reject) => {
+    const data = await new Promise((resolve, reject) => {
       const req = https.request(
         {
-          hostname: "id.pinterest.com",
+          hostname: "www.pinterest.com",
           path: "/resource/BaseSearchResource/get/",
           method: "POST",
           headers: {
             Accept: "application/json, text/javascript, */*; q=0.01",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             "X-CSRFToken": csrftoken,
             Cookie: cookieHeader,
             "X-Requested-With": "XMLHttpRequest",
-            "Content-Length": Buffer.byteLength(dataString),
+            Referer: `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`,
+            "Content-Length": Buffer.byteLength(body),
           },
         },
         (res) => {
-          let body = "";
-          res.on("data", (chunk) => (body += chunk));
+          let raw = "";
+          res.on("data", (c) => (raw += c));
           res.on("end", () => {
-            try { resolve(JSON.parse(body)); } catch { reject(new Error("Parse error")); }
+            try {
+              resolve(JSON.parse(raw));
+            } catch {
+              reject(new Error("Pinterest returned invalid JSON."));
+            }
           });
         }
       );
       req.on("error", reject);
-      req.write(dataString);
+      req.write(body);
       req.end();
     });
 
-    const pins = responseData?.resource_response?.data?.results || [];
+    const pins = data?.resource_response?.data?.results || [];
     for (const pin of pins) {
-      const imgUrl =
+      const url =
         pin?.images?.orig?.url ||
-        pin?.image_medium_url ||
-        pin?.images?.["736x"]?.url;
-      if (imgUrl) results.push(imgUrl);
+        pin?.images?.["736x"]?.url ||
+        pin?.image_medium_url;
+      if (url) results.push({ url, title: pin?.title || "", id: pin?.id });
       if (results.length >= limit) break;
     }
 
-    bookmark = responseData?.resource_response?.bookmark;
+    bookmark = data?.resource_response?.bookmark;
     if (!bookmark || pins.length === 0) break;
   }
 
   return results.slice(0, limit);
 }
+
+export { searchPinterest as searchPinterestAPI };

@@ -1484,16 +1484,43 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "pinterest": {
-        const u=args[0]?.trim();if(!u||!/pinterest/.test(u)){await reply(`Usage: ${prefix}pinterest <Pinterest URL>`);break;}
-        await reply("⏳ Fetching Pinterest image...");
-        try{
-          const r=await fetch(u,{headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},redirect:"follow"});
-          const html=await r.text();
-          const ogImg=html.match(/property="og:image"\s+content="([^"]+)"/)?.[1]||html.match(/"image_url":"([^"]+)"/)?.[1];
-          if(!ogImg){await reply("❌ Could not extract image. The pin may be private.");break;}
-          const clean=ogImg.replace(/\/236x\//,"/originals/").replace(/\/564x\//,"/originals/");
-          await sock.sendMessage(jid,{image:{url:clean},caption:"📌 Pinterest Image"},{quoted:msg});
-        }catch(e){await reply(`❌ pinterest: ${e.message}`);}
+        if (!text) { await reply(`📌 Usage: ${prefix}pinterest <search keyword>\nExample: ${prefix}pinterest anime girl`); break; }
+        initUserDB(sender, pushname);
+        const pinCost2 = getLimitCost("pinterest", 1);
+        const pinLim2 = checkLimit(sender, isOwner(sender));
+        if (pinLim2 !== "∞" && pinLim2 < pinCost2) { await reply(`❌ Not enough limit! Need *${pinCost2}*, you have *${pinLim2}*.`); break; }
+        await sock.sendMessage(jid, { react: { text: "🔍", key: msg.key } });
+        try {
+          const images = await searchPinterestAPI(text, 10);
+          if (!images?.length) throw new Error("No images found for that keyword.");
+          const cards = await Promise.all(images.slice(0, 10).map(async (item, i) => ({
+            header: proto.Message.InteractiveMessage.Header.create({
+              ...(await prepareWAMessageMedia({ image: { url: item.url } }, { upload: sock.waUploadToServer })),
+              title: '',
+              subtitle: `Image ${i + 1} of ${images.length}`,
+              hasMediaAttachment: true
+            }),
+            body: { text: item.title ? `📌 ${item.title}` : '' },
+            nativeFlowMessage: { buttons: [] }
+          })));
+          const carouselMsg = generateWAMessageFromContent(jid, {
+            viewOnceMessage: {
+              message: {
+                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+                interactiveMessage: {
+                  body: { text: `📌 *Pinterest Search*\n\n🔎 Query: _${text}_\n📷 ${images.length} results found` },
+                  carouselMessage: { cards, messageVersion: 1 }
+                }
+              }
+            }
+          }, { quoted: msg });
+          await sock.relayMessage(jid, carouselMsg.message, { messageId: carouselMsg.key.id });
+          useLimit(sender, pinCost2, isOwner(sender));
+          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+        } catch (e) {
+          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+          await reply(`❌ Pinterest search failed: ${e.message}`);
+        }
         break;
       }
 
@@ -2055,7 +2082,7 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       // ── Pinterest ─────────────────────────────────────────────────
       case "pin": {
-        if (!text) return reply(`📌 Example: ${prefix}pinterest <search query>`);
+        if (!text) return reply(`📌 Usage: ${prefix}pin <search keyword>\nExample: ${prefix}pin aesthetic room`);
         initUserDB(sender, pushname);
         const pinCost = getLimitCost("pinterest", 1);
         const pinLim = checkLimit(sender, isOwner(sender));
@@ -2063,15 +2090,15 @@ export async function handleCommand({ sock, msg, command, args }) {
         await sock.sendMessage(jid, { react: { text: "🔍", key: msg.key } });
         try {
           const images = await searchPinterestAPI(text, 10);
-          if (!images?.length) throw new Error("No images found.");
-          const cards = await Promise.all(images.slice(0, 10).map(async (url, i) => ({
+          if (!images?.length) throw new Error("No images found for that keyword.");
+          const cards = await Promise.all(images.slice(0, 10).map(async (item, i) => ({
             header: proto.Message.InteractiveMessage.Header.create({
-              ...(await prepareWAMessageMedia({ image: { url } }, { upload: sock.waUploadToServer })),
+              ...(await prepareWAMessageMedia({ image: { url: item.url } }, { upload: sock.waUploadToServer })),
               title: '',
               subtitle: `Image ${i + 1} of ${images.length}`,
               hasMediaAttachment: true
             }),
-            body: { text: '' },
+            body: { text: item.title ? `📌 ${item.title}` : '' },
             nativeFlowMessage: { buttons: [] }
           })));
           const carouselMsg = generateWAMessageFromContent(jid, {
