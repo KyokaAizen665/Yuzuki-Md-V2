@@ -1,7 +1,6 @@
 /**
  * group.js
  * Handles WhatsApp group participant events.
- * Pattern adapted from HydroMD (github.com/AhmadAkbarID/hydromd).
  *
  * Events handled:
  *   add     → Welcome card  (respects gc.welcome flag)

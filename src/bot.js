@@ -105,6 +105,12 @@ function extractText(msg) {
     const rowId = m.listResponseMessage.singleSelectReply.selectedRowId;
     return "." + rowId.replace(/_/g, " ");
   }
+  // FIX: handle nativeFlowMessage button taps (interactiveResponseMessage)
+  if (m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
+    try {
+      return JSON.parse(m.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id ?? "";
+    } catch { return ""; }
+  }
   return "";
 }
 
@@ -141,6 +147,28 @@ export async function startBot() {
     logger: silentLogger,
     syncFullHistory: false,
     markOnlineOnConnect: true,
+    browser: ["Android", "Chrome", "114.0.5735.196"],
+    patchMessageBeforeSending: (message) => {
+      const requiresPatch = !!(
+        message.buttonsMessage ||
+        message.templateMessage ||
+        message.listMessage
+      );
+      if (requiresPatch) {
+        message = {
+          viewOnceMessage: {
+            message: {
+              messageContextInfo: {
+                deviceListMetadataVersion: 2,
+                deviceListMetadata: {},
+              },
+              ...message,
+            },
+          },
+        };
+      }
+      return message;
+    },
   });
 
   state.socket = sock;

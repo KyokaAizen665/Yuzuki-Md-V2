@@ -303,11 +303,51 @@ export async function handleCommand({ sock, msg, command, args }) {
         remoteJid: vq.key.remoteJid,
       };
 
+      // ── Send menu with hydromd-style single_select button ──────────────
+      const menuRows = Object.entries(CATEGORIES).map(([key, cat]) => ({
+        title: `${cat.icon} ${cat.title}`,
+        description: `${cat.commands.length} commands`,
+        id: `${prefix}menu ${key}`,
+      }));
+
       try {
-        await sock.sendMessage(jid, { image: { url: imageUrl }, caption: menuCaption, contextInfo: menuCtx });
+        const mediaHeader = await prepareWAMessageMedia(
+          menuThumb ? { image: menuThumb } : { image: { url: imageUrl } },
+          { upload: sock.waUploadToServer }
+        );
+        const interactiveMsg = generateWAMessageFromContent(jid, {
+          viewOnceMessage: {
+            message: {
+              messageContextInfo: {
+                deviceListMetadata: {},
+                deviceListMetadataVersion: 2,
+              },
+              interactiveMessage: {
+                body: { text: menuCaption },
+                footer: { text: `Made with ♥ by Aizen | ${botName}` },
+                header: {
+                  title: "",
+                  subtitle: "",
+                  hasMediaAttachment: true,
+                  ...mediaHeader,
+                },
+                nativeFlowMessage: {
+                  buttons: [{
+                    name: "single_select",
+                    buttonParamsJson: JSON.stringify({
+                      title: "📂 Browse Categories",
+                      sections: [{ title: "Menu Categories", rows: menuRows }],
+                    }),
+                  }],
+                },
+              },
+            },
+          },
+        }, { quoted: msg }, {});
+        await sock.relayMessage(interactiveMsg.key.remoteJid, interactiveMsg.message, { messageId: interactiveMsg.key.id });
       } catch {
         try {
-          await sock.sendMessage(jid, { text: menuCaption, contextInfo: menuCtx });
+          await sock.sendMessage(jid, { image: { url: imageUrl }, caption: menuCaption, contextInfo: menuCtx });
         } catch {
           await reply(menuCaption);
         }
@@ -1827,6 +1867,10 @@ export async function handleCommand({ sock, msg, command, args }) {
             const carouselMsg = generateWAMessageFromContent(jid, {
               viewOnceMessage: {
                 message: {
+                  messageContextInfo: {
+                    deviceListMetadata: {},
+                    deviceListMetadataVersion: 2,
+                  },
                   interactiveMessage: {
                     body: { text: caption },
                     carouselMessage: { cards, messageVersion: 1 }
@@ -2033,6 +2077,10 @@ export async function handleCommand({ sock, msg, command, args }) {
           const carouselMsg = generateWAMessageFromContent(jid, {
             viewOnceMessage: {
               message: {
+                messageContextInfo: {
+                  deviceListMetadata: {},
+                  deviceListMetadataVersion: 2,
+                },
                 interactiveMessage: {
                   body: { text: `📌 *Pinterest Search*\n\n🔎 Query: _${text}_\n📷 ${images.length} results` },
                   carouselMessage: { cards, messageVersion: 1 }
