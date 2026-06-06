@@ -23,18 +23,32 @@ export const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 
 const silentLogger = pino({ level: "silent" });
 
-// ── Pretty chalk logger for message handling ──────────────────────────────────
-const ts = () => chalk.dim(new Date().toLocaleTimeString("en-US", { hour12: false }));
+// ── Styled logger ─────────────────────────────────────────────────────────────
+const ocean  = chalk.hex("#0096FF");
+const lBlue  = chalk.hex("#64C8FF");
+const ts = () =>
+  chalk.hex("#4A90D9")("❯") +
+  chalk.dim(new Date().toLocaleTimeString("en-US", { hour12: false }));
+
+const badge = (bg, fg, label) => chalk.bgHex(bg).hex(fg).bold(` ${label} `);
+
 const log = {
-  event:   (...a) => console.log(`${ts()} ${chalk.bgCyan.black(" EVENT ")}  ${a.map(String).join(" ")}`),
-  info:    (...a) => console.log(`${ts()} ${chalk.cyanBright("ℹ INFO")}    ${a.map(String).join(" ")}`),
-  skip:    (...a) => console.log(`${ts()} ${chalk.yellow("⏭ SKIP")}    ${a.map(String).join(" ")}`),
-  cmd:     (...a) => console.log(`${ts()} ${chalk.magentaBright("⚡ CMD")}     ${a.map(String).join(" ")}`),
-  ok:      (...a) => console.log(`${ts()} ${chalk.greenBright("✔ OK")}      ${a.map(String).join(" ")}`),
-  warn:    (...a) => console.log(`${ts()} ${chalk.yellowBright("⚠ WARN")}    ${a.map(String).join(" ")}`),
-  err:     (...a) => console.log(`${ts()} ${chalk.redBright("✖ ERROR")}   ${a.map(String).join(" ")}`),
-  connect: (...a) => console.log(`${ts()} ${chalk.bgGreen.black(" ONLINE ")} ${a.map(String).join(" ")}`),
-  discon:  (...a) => console.log(`${ts()} ${chalk.bgRed.white(" OFFLINE ")} ${a.map(String).join(" ")}`),
+  event:   (...a) => console.log(`${ts()} ${badge("#0096FF","#ffffff","EVENT")}  ${lBlue(a.map(String).join(" "))}`),
+  info:    (...a) => console.log(`${ts()} ${badge("#1E3A5F","#64C8FF","INFO ")}  ${chalk.dim(a.map(String).join(" "))}`),
+  skip:    (...a) => console.log(`${ts()} ${badge("#2D2D00","#FFD700","SKIP ")}  ${chalk.hex("#888")(a.map(String).join(" "))}`),
+  cmd:     (...a) => console.log(`${ts()} ${badge("#3D006E","#DA8FFF","CMD  ")}  ${chalk.hex("#DA8FFF").bold(a.map(String).join(" "))}`),
+  ok:      (...a) => console.log(`${ts()} ${badge("#003D00","#4AFF4A"," OK  ")}  ${chalk.hex("#4AFF4A")(a.map(String).join(" "))}`),
+  warn:    (...a) => console.log(`${ts()} ${badge("#3D2600","#FFB347","WARN ")}  ${chalk.hex("#FFB347")(a.map(String).join(" "))}`),
+  err:     (...a) => console.log(`${ts()} ${badge("#4A0000","#FF6B6B","ERROR")}  ${chalk.hex("#FF6B6B").bold(a.map(String).join(" "))}`),
+  connect: (...a) => console.log(`${ts()} ${badge("#003D1F","#00FF87","ONLINE")} ${chalk.hex("#00FF87").bold(a.map(String).join(" "))}`),
+  discon:  (...a) => console.log(`${ts()} ${badge("#4A0000","#FF6B6B","OFFLINE")} ${chalk.hex("#FF6B6B")(a.map(String).join(" "))}`),
+  msg:     (from, type, text) => {
+    const sender = ocean.bold(from.padEnd(15));
+    const kind   = chalk.dim(`[${type}]`).padEnd(20);
+    const body   = chalk.white(text ? text.slice(0, 60) + (text.length > 60 ? "…" : "") : chalk.dim("(no text)"));
+    console.log(`${ts()} ${badge("#0096FF","#ffffff","MSG  ")}  ${sender} ${kind} ${body}`);
+  },
+  push:    (...a) => console.log(`${ts()} ${badge("#004080","#AADDFF","PUSH ")}  ${lBlue(a.map(String).join(" "))}`),
 };
 
 
@@ -202,7 +216,23 @@ export async function startBot() {
     logger.info({ phoneNumber }, "ownerNumber saved to settings.json");
 
     try {
-      await new Promise((r) => setTimeout(r, 2000));
+      // Wait for WhatsApp WebSocket handshake before requesting the code.
+      // A flat delay is unreliable — on slow connections 2 s is not enough,
+      // and the pairing request fails silently → "couldn't link device".
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Timeout waiting for WS handshake")), 15000);
+        const unsub = sock.ev.on("connection.update", (update) => {
+          // connection.update fires with isOnline/qr/etc once the WS is up
+          if (update.connection === "connecting" || update.qr || update.isOnline) {
+            clearTimeout(timeout);
+            unsub?.();
+            resolve();
+          }
+        });
+      }).catch(() => {
+        // Fallback: just wait 3 s if the event never fires
+        return new Promise((r) => setTimeout(r, 3000));
+      });
       const code = await sock.requestPairingCode(phoneNumber);
       state.pairingCode = code;
       const line = "=".repeat(44);
@@ -328,7 +358,8 @@ export async function startBot() {
 
     for (const msg of messages) {
       const msgTypes = msg.message ? Object.keys(msg.message) : [];
-      log.info(`Processing ${chalk.white("from=")}${chalk.cyan(msg.key.remoteJid?.split("@")[0] ?? "?")} ${chalk.white("fromMe=")}${chalk.cyan(msg.key.fromMe)} ${chalk.dim(msgTypes.join(", "))}`);
+      const msgFrom  = msg.key.remoteJid?.split("@")[0] ?? "?";
+      log.msg(msgFrom, msgTypes[0] ?? "unknown", extractText(msg));
 
       if (msg.key.fromMe) {
         // Linked-device bot: owner's own typing also arrives as fromMe.
