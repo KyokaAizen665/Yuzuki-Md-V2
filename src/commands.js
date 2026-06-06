@@ -276,7 +276,7 @@ export async function handleCommand({ sock, msg, command, args }) {
         menuThumb = Buffer.from(await tr.arrayBuffer());
       } catch { menuThumb = undefined; }
 
-      // ── Build product card as inline quote (appears inside menu bubble) ──
+      // ── Build product card ──────────────────────────────────────────────
       const cardTitle    = settings.productTitle    || botName;
       const cardDesc     = settings.productDesc     || "I'm aizen";
       const cardCurrency = settings.productCurrency || "USD";
@@ -291,10 +291,10 @@ export async function handleCommand({ sock, msg, command, args }) {
         productImage = pm.imageMessage;
       } catch { productImage = undefined; }
 
-      // Fake quoted object — same pattern as getVerifiedQuoted but a product card
-      const productQuoted = {
-        key: { fromMe: false, participant: "0@s.whatsapp.net", remoteJid: "status@broadcast" },
-        message: {
+      // ── Send product card first — status@broadcast + 0@s.whatsapp.net
+      //    makes WhatsApp render "WhatsApp Business • Status" blue bar ────
+      try {
+        await sock.sendMessage(jid, {
           productMessage: {
             product: {
               productId: "1337",
@@ -306,10 +306,18 @@ export async function handleCommand({ sock, msg, command, args }) {
               ...(productImage ? { productImage } : {}),
             },
             businessOwnerJid: sock.user.id,
+            contextInfo: {
+              stanzaId: Math.random().toString(36).slice(2, 10).toUpperCase(),
+              fromMe: false,
+              participant: "0@s.whatsapp.net",
+              remoteJid: "status@broadcast",
+              quotedMessage: { conversation: `Hai👋... ${botName}` },
+            },
           },
-        },
-      };
+        });
+      } catch { /* skip silently if product message unsupported */ }
 
+      // ── Build context for the menu message ─────────────────────────────
       const menuCtx = {
         forwardingScore: 2025,
         isForwarded: true,
@@ -331,9 +339,6 @@ export async function handleCommand({ sock, msg, command, args }) {
           sourceUrl: "t.me//aizesuigetsu",
           mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
         },
-        quotedMessage: productQuoted.message,
-        participant: productQuoted.key.participant,
-        remoteJid: productQuoted.key.remoteJid,
       };
 
       // ── Send menu with hydromd-style single_select button ──────────────
@@ -376,7 +381,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               },
             },
           },
-        }, { quoted: productQuoted }, {});
+        }, { quoted: msg }, {});
         await sock.relayMessage(interactiveMsg.key.remoteJid, interactiveMsg.message, { messageId: interactiveMsg.key.id });
       } catch {
         try {
