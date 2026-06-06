@@ -3,7 +3,8 @@
 // ║  No need to touch commands.js for menu changes.         ║
 // ╚══════════════════════════════════════════════════════════╝
 
-export const MENU_BG = "https://litter.catbox.moe/86d9vf.jpg";
+import { fileURLToPath } from "url";
+export const MENU_BG = fileURLToPath(new URL("./assets/menu_bg.jpg", import.meta.url));
 
 export const CATEGORIES = {
   ai: {
