@@ -270,12 +270,45 @@ export async function handleCommand({ sock, msg, command, args }) {
       const menuCaption = buildMain(botName, prefix, { pushname, userRank, uptimeStr, totalUsers, totalCmds, ownerNumber });
       const imageUrl = settings.menuBgUrl || MENU_BG;
 
-      const vq = getVerifiedQuoted(settings);
       let menuThumb;
       try {
         const tr = await fetch(imageUrl);
         menuThumb = Buffer.from(await tr.arrayBuffer());
       } catch { menuThumb = undefined; }
+
+      // ── Build product card as inline quote (appears inside menu bubble) ──
+      const cardTitle    = settings.productTitle    || botName;
+      const cardDesc     = settings.productDesc     || "I'm aizen";
+      const cardCurrency = settings.productCurrency || "USD";
+      const cardPrice    = settings.productPrice    || 1000000000;
+      const cardImgSrc   = settings.productImgUrl
+        ? { image: { url: settings.productImgUrl } }
+        : (menuThumb ? { image: menuThumb } : { image: { url: imageUrl } });
+
+      let productImage;
+      try {
+        const pm = await prepareWAMessageMedia(cardImgSrc, { upload: sock.waUploadToServer });
+        productImage = pm.imageMessage;
+      } catch { productImage = undefined; }
+
+      // Fake quoted object — same pattern as getVerifiedQuoted but a product card
+      const productQuoted = {
+        key: { fromMe: false, participant: "0@s.whatsapp.net", remoteJid: "status@broadcast" },
+        message: {
+          productMessage: {
+            product: {
+              productId: "1337",
+              title: cardTitle,
+              description: cardDesc,
+              currencyCode: cardCurrency,
+              priceAmount1000: cardPrice,
+              retailerId: "yuzuki-v2",
+              ...(productImage ? { productImage } : {}),
+            },
+            businessOwnerJid: sock.user.id,
+          },
+        },
+      };
 
       const menuCtx = {
         forwardingScore: 2025,
@@ -298,9 +331,9 @@ export async function handleCommand({ sock, msg, command, args }) {
           sourceUrl: "t.me//aizesuigetsu",
           mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
         },
-        quotedMessage: vq.message,
-        participant: vq.key.participant,
-        remoteJid: vq.key.remoteJid,
+        quotedMessage: productQuoted.message,
+        participant: productQuoted.key.participant,
+        remoteJid: productQuoted.key.remoteJid,
       };
 
       // ── Send menu with hydromd-style single_select button ──────────────
@@ -343,7 +376,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               },
             },
           },
-        }, { quoted: msg }, {});
+        }, { quoted: productQuoted }, {});
         await sock.relayMessage(interactiveMsg.key.remoteJid, interactiveMsg.message, { messageId: interactiveMsg.key.id });
       } catch {
         try {
@@ -352,42 +385,6 @@ export async function handleCommand({ sock, msg, command, args }) {
           await reply(menuCaption);
         }
       }
-
-      // ── Product card sent alongside the main menu ──────────────────
-      try {
-        const cardTitle    = settings.productTitle    || botName;
-        const cardDesc     = settings.productDesc     || "I'm aizen";
-        const cardCurrency = settings.productCurrency || "USD";
-        const cardPrice    = settings.productPrice    || 1000000000;
-        const cardImgUrl   = settings.productImgUrl   || imageUrl;
-        const cardImgSrc   = settings.productImgUrl
-          ? { image: { url: cardImgUrl } }
-          : (menuThumb ? { image: menuThumb } : { image: { url: imageUrl } });
-
-        let productImage;
-        try {
-          const productMedia = await prepareWAMessageMedia(
-            cardImgSrc,
-            { upload: sock.waUploadToServer }
-          );
-          productImage = productMedia.imageMessage;
-        } catch { productImage = undefined; }
-
-        await sock.sendMessage(jid, {
-          productMessage: {
-            product: {
-              productId: "1337",
-              title: cardTitle,
-              description: cardDesc,
-              currencyCode: cardCurrency,
-              priceAmount1000: cardPrice,
-              retailerId: "yuzuki-v2",
-              ...(productImage ? { productImage } : {}),
-            },
-            businessOwnerJid: sock.user.id,
-          },
-        }, { quoted: msg });
-      } catch { /* silently skip if product message is unsupported */ }
 
       break;
     }
