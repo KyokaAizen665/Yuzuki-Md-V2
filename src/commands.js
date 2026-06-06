@@ -176,6 +176,10 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
     };
 
+  const sender = senderJid;
+  const pushname = msg.pushName ?? "User";
+  const text = args.join(" ").trim();
+
       if (OWNER_COMMANDS.has(command)) {
     if (!isOwner(senderJid, settings)) {
       await reply("This command is restricted to bot owners.");
@@ -205,11 +209,11 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       const vq2 = getVerifiedQuoted(settings);
       let thumbnail2;
-      try { const tr = await fetch("https://www.upload.ee/image/19414168/file.jpg"); thumbnail2 = Buffer.from(await tr.arrayBuffer()); } catch { thumbnail2 = undefined; }
+      try { const tr = await fetch("https://qu.ax/RYgoy"); thumbnail2 = Buffer.from(await tr.arrayBuffer()); } catch { thumbnail2 = undefined; }
       const ctx2 = {
         forwardingScore: 2025, isForwarded: true,
         ...(settings.channelId && settings.channelName ? { forwardedNewsletterMessageInfo: { newsletterJid: settings.channelId, serverMessageId: null, newsletterName: settings.channelName } } : {}),
-        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://www.upload.ee/image/19414168/file.jpg", renderLargerThumbnail: false, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
+        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://qu.ax/RYgoy", renderLargerThumbnail: false, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
         quotedMessage: vq2.message, participant: vq2.key.participant, remoteJid: vq2.key.remoteJid,
       };
       try { await sock.sendMessage(jid, { image: { url: imageUrl2 }, caption: subCaption, contextInfo: ctx2 }); }
@@ -291,7 +295,7 @@ export async function handleCommand({ sock, msg, command, args }) {
           thumbnailUrl: imageUrl,
           renderLargerThumbnail: false,
           sourceUrl: "t.me//DeathCore_Xr",
-          mediaUrl: "https://www.upload.ee/image/19414168/file.jpg",
+          mediaUrl: "https://qu.ax/5ChSk",
         },
         quotedMessage: vq.message,
         participant: vq.key.participant,
@@ -350,6 +354,102 @@ export async function handleCommand({ sock, msg, command, args }) {
       break;
     }
 
+    // ── .allmenu — all categories as swipeable carousel cards ──────────
+    case "allmenu": {
+      await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
+      try {
+        const botName = settings.botName ?? "Yuzuki";
+        const sharedMedia = await prepareWAMessageMedia(
+          { image: { url: "https://qu.ax/RYgoy" } },
+          { upload: sock.waUploadToServer }
+        );
+
+        const ownerNum = (settings.ownerNumber ?? "").replace(/\D/g, "");
+
+        // 10-card layout — merged categories keep us under WhatsApp's carousel limit
+        const LAYOUT = [
+          ["ai"],
+          ["downloader", "youtube"],
+          ["fun", "game"],
+          ["general"],
+          ["group"],
+          ["owner"],
+          ["protect"],
+          ["profile"],
+          ["maker", "tools"],
+          ["search"],
+        ];
+
+        // One CTA button per card for the first 4 cards
+        const cta = (display_text, url) => ({
+          name: "cta_url",
+          buttonParamsJson: JSON.stringify({ display_text, url, merchant_url: url }),
+        });
+        const ctaButtons = [
+          cta("⭐ GitHub Repo",  "https://github.com/KyokaAizen665/Yuzuki-Md-V2"),
+          cta("💬 Chat Owner",   `https://wa.me/${ownerNum}`),
+          cta("📢 Join Channel", "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"),
+          cta("✈️ Telegram",     "https://t.me/DeathCore_Xr"),
+        ];
+
+        const cards = LAYOUT.map((keys, idx) => {
+          const cats = keys.map((k) => CATEGORIES[k]);
+          const subtitle = cats.map((c) => `${c.icon} ${c.title}`).join("  ·  ");
+          const bodyText = cats
+            .map((c) => {
+              const cmds = c.commands.map((cmd) => `➤ ${prefix}${cmd}`).join("\n");
+              return `${c.icon} *${c.title}*\n${cmds}`;
+            })
+            .join(`\n${"─".repeat(20)}\n`);
+
+          return {
+            header: {
+              ...sharedMedia,
+              title: "",
+              subtitle,
+              hasMediaAttachment: true,
+            },
+            body: { text: bodyText },
+            nativeFlowMessage: {
+              buttons: idx < ctaButtons.length ? [ctaButtons[idx]] : [],
+            },
+          };
+        });
+
+        const carouselMsg = generateWAMessageFromContent(
+          jid,
+          {
+            viewOnceMessage: {
+              message: {
+                messageContextInfo: {
+                  deviceListMetadata: {},
+                  deviceListMetadataVersion: 2,
+                },
+                interactiveMessage: {
+                  body: {
+                    text:
+                      `📋 *${botName} — Full Menu*\n` +
+                      `${"━".repeat(26)}\n` +
+                      `Swipe the cards to browse all categories.\n` +
+                      `Type *${prefix}<command>* to use any command.`,
+                  },
+                  carouselMessage: { cards, messageVersion: 1 },
+                },
+              },
+            },
+          },
+          { quoted: msg }
+        );
+        await sock.relayMessage(jid, carouselMsg.message, { messageId: carouselMsg.key.id });
+
+        await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+      } catch (e) {
+        await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+        await reply(`❌ allmenu failed: ${e.message}`);
+      }
+      break;
+    }
+
     case "setmenuimg": {
       const url = args.join(" ").trim();
       if (!url) {
@@ -392,9 +492,138 @@ export async function handleCommand({ sock, msg, command, args }) {
     case "dev":
     case "creator":
     case "developer":
-    case "own":
-      await replyChannel(`*𝗛𝗶 👋. 𝗧𝗵𝗶𝘀 𝗶𝘀 𝘁𝗵𝗲 𝗢𝘄𝗻𝗲𝗿 𝗮𝗻𝗱 𝗗𝗲𝘃 𝗼𝗳 𝗬𝘂𝘇𝘂𝗸𝗶 𝗠𝗗.. 𝗙𝗲𝗲𝗹 𝗳𝗿𝗲𝗲 𝘁𝗼 𝗰𝗵𝗮𝘁.*\n𝗡𝗮𝗺𝗲: Aizen\n𝗖𝗼𝗻𝘁𝗮𝗰𝘁: 233533416608\n🗽𝗙𝗼𝗜𝗜𝗼𝘄 𝗳𝗼𝗿 𝘂𝗽𝗱𝗮𝘁𝗲𝘀\nhttps://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326`);
-      break;
+    case "own": {
+const imageUrl = "https://qu.ax/5ChSk";
+
+const media1 = await prepareWAMessageMedia(
+{ image: { url: imageUrl } },
+{ upload: sock.waUploadToServer }
+);
+
+const media2 = await prepareWAMessageMedia(
+{ image: { url: imageUrl } },
+{ upload: sock.waUploadToServer }
+);
+
+const media3 = await prepareWAMessageMedia(
+{ image: { url: imageUrl } },
+{ upload: sock.waUploadToServer }
+);
+
+const cards = [
+{
+header: {
+...media1,
+title: "👑 Aizen",
+subtitle: "Owner & Developer",
+hasMediaAttachment: true
+},
+body: {
+text:
+"*𝗛𝗶 👋. 𝗧𝗵𝗶𝘀 𝗶𝘀 𝘁𝗵𝗲 𝗢𝘄𝗻𝗲𝗿 𝗮𝗻𝗱 𝗗𝗲𝘃 𝗼𝗳 𝗬𝘂𝘇𝘂𝗸𝗶 𝗠𝗗.*\n\n" +
+"𝗡𝗮𝗺𝗲: Aizen\n" +
+"𝗖𝗼𝗻𝘁𝗮𝗰𝘁: +233533416608"
+},
+nativeFlowMessage: {
+buttons: [
+{
+name: "cta_url",
+buttonParamsJson: JSON.stringify({
+display_text: "💬 Chat Owner",
+url: "https://wa.me/233533416608",
+merchant_url: "https://wa.me/233533416608"
+})
+}
+]
+}
+},
+
+{
+  header: {
+    ...media2,
+    title: "📢 WhatsApp Channel",
+    subtitle: "Official Updates",
+    hasMediaAttachment: true
+  },
+  body: {
+    text:
+      `Stay updated with Yuzuki MD.\n\n` +
+      `News, releases, fixes and future updates are posted here.`
+  },
+  nativeFlowMessage: {
+    buttons: [
+      {
+        name: "cta_url",
+        buttonParamsJson: JSON.stringify({
+          display_text: "📢 Join Channel",
+          url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
+          merchant_url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
+        })
+      }
+    ]
+  }
+},
+
+{
+  header: {
+    ...media3,
+    title: "✈️ Telegram",
+    subtitle: "Community",
+    hasMediaAttachment: true
+  },
+  body: {
+    text:
+      `Join our Telegram community.\n\n` +
+      `Get support, announcements and connect with other users.`
+  },
+  nativeFlowMessage: {
+    buttons: [
+      {
+        name: "cta_url",
+        buttonParamsJson: JSON.stringify({
+          display_text: "✈️ Open Telegram",
+          url: "https://t.me/DeathCore_Xr",
+          merchant_url: "https://t.me/DeathCore_Xr"
+        })
+      }
+    ]
+  }
+}
+
+];
+
+const carouselMsg = generateWAMessageFromContent(
+jid,
+{
+viewOnceMessage: {
+message: {
+messageContextInfo: {
+deviceListMetadata: {},
+deviceListMetadataVersion: 2,
+},
+interactiveMessage: {
+body: {
+text: "👑 Yuzuki MD Owner Information"
+},
+carouselMessage: {
+cards,
+messageVersion: 1
+}
+}
+}
+}
+},
+{ quoted: msg }
+);
+
+await sock.relayMessage(
+jid,
+carouselMsg.message,
+{ messageId: carouselMsg.key.id }
+);
+
+break;
+}
 
     case "speed": {
       const start = Date.now();
@@ -864,22 +1093,61 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "base64": {
-        const sub = (args[0] ?? "").toLowerCase();
-        const text = args.slice(1).join(" ");
-        if ((sub !== "encode" && sub !== "decode") || !text) {
-          await reply(`Usage:\n${prefix}base64 encode <text>\n${prefix}base64 decode <base64>`);
-          break;
+  const sub = (args[0] ?? "").toLowerCase();
+  const text = args.slice(1).join(" ");
+
+  if ((sub !== "encode" && sub !== "decode") || !text) {
+    await reply(`Usage:\n${prefix}base64 encode <text>\n${prefix}base64 decode <base64>`);
+    break;
+  }
+
+  try {
+    const result = sub === "encode"
+      ? Buffer.from(text, "utf8").toString("base64")
+      : Buffer.from(text, "base64").toString("utf8");
+
+    const msgx = generateWAMessageFromContent(jid, {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            body: {
+              text: `*Base64 ${sub}:*\n${result}`
+            },
+            footer: {
+              text: settings.botName ?? "Yuzuki MD"
+            },
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: "cta_copy",
+                  buttonParamsJson: JSON.stringify({
+                    display_text: "📋 Copy Result",
+                    copy_code: result
+                  })
+                }
+              ]
+            }
+          }
         }
-        try {
-          const result = sub === "encode"
-            ? Buffer.from(text, "utf8").toString("base64")
-            : Buffer.from(text, "base64").toString("utf8");
-          await replyChannel(`*Base64 ${sub}:*\n${result}`);
-        } catch {
-          await reply("❌ Failed. Make sure your input is valid.");
-        }
-        break;
       }
+    }, { quoted: msg });
+
+    await sock.relayMessage(
+      jid,
+      msgx.message,
+      { messageId: msgx.key.id }
+    );
+
+  } catch {
+    await reply("❌ Failed. Make sure your input is valid.");
+  }
+
+  break;
+}
 
       case "runtime": {
         const ms = Date.now() - startTime;
@@ -893,37 +1161,175 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "about": {
-        await replyChannel(
-          `*${settings.botName ?? "Yuzuki"}*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `A feature-rich WhatsApp bot built with Baileys.\n\n` +
-          `🔑 *Prefix:* ${settings.prefix ?? "."}\n` +
-          `👑 *Owner:* 233533416608\n` +
-          `📦 *Platform:* Node.js + socketon (focashi fork)`
-        );
-        break;
+  const msgx = generateWAMessageFromContent(jid, {
+    viewOnceMessage: {
+      message: {
+        messageContextInfo: {
+          deviceListMetadata: {},
+          deviceListMetadataVersion: 2,
+        },
+        interactiveMessage: {
+          body: {
+            text:
+              `*${settings.botName ?? "Yuzuki"}*\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `A feature-rich WhatsApp bot built with Baileys.\n\n` +
+              `🔑 *Prefix:* ${settings.prefix ?? "."}\n` +
+              `👑 *Owner:* 233533416608\n` +
+              `📦 *Platform:* Node.js + socketon (focashi fork)`
+          },
+          footer: {
+            text: "Yuzuki MD"
+          },
+          nativeFlowMessage: {
+            buttons: [
+              {
+                name: "cta_url",
+                buttonParamsJson: JSON.stringify({
+                  display_text: "💻 GitHub Repo",
+                  url: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+                  merchant_url: "https://github.com/KyokaAizen665/Yuzuki-Md-V2"
+                })
+              }
+            ]
+          }
+        }
       }
+    }
+  }, { quoted: msg });
+
+  await sock.relayMessage(
+    jid,
+    msgx.message,
+    { messageId: msgx.key.id }
+  );
+
+  break;
+}
 
       case "help": {
-        await replyChannel(
-          `*${settings.botName ?? "Bot"} Help*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `Use *${prefix}menu* to browse all commands.\n` +
-          `Use *${prefix}menu <category>* for a specific list.\n\n` +
-          `Categories: ai · fun · game · tools · group · search · owner`
-        );
-        break;
-      }
+const mediaHeader = await prepareWAMessageMedia(
+{
+image: {
+url: "https://qu.ax/5ChSk"
+}
+},
+{
+upload: sock.waUploadToServer
+}
+);
+
+const msgx = generateWAMessageFromContent(jid, {
+viewOnceMessage: {
+message: {
+messageContextInfo: {
+deviceListMetadata: {},
+deviceListMetadataVersion: 2,
+},
+interactiveMessage: {
+header: {
+hasMediaAttachment: true,
+...mediaHeader
+},
+body: {
+text:
+`*${settings.botName ?? "Bot"} Help*\n` +
+`━━━━━━━━━━━━━━━━━━━\n` +
+`Use *${prefix}menu* to browse all commands.\n` +
+`Use *${prefix}menu <category>* for a specific list.\n\n` +
+`Categories:\n` +
+`🤖 AI\n🎮 Game\n🛠 Tools\n🔍 Search\n👥 Group\n👑 Owner`
+},
+footer: {
+text: "Yuzuki MD"
+},
+nativeFlowMessage: {
+buttons: [
+{
+name: "cta_url",
+buttonParamsJson: JSON.stringify({
+display_text: "📢 WhatsApp Channel",
+url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
+merchant_url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
+})
+},
+{
+name: "cta_url",
+buttonParamsJson: JSON.stringify({
+display_text: "💬 Chat Owner",
+url: "https://wa.me/233533416608",
+merchant_url: "https://wa.me/233533416608"
+})
+},
+{
+name: "cta_url",
+buttonParamsJson: JSON.stringify({
+display_text: "✈️ Telegram",
+url: "https://t.me/DeathCore_Xr",
+merchant_url: "https://t.me/DeathCore_Xr"
+})
+}
+]
+}
+}
+}
+}
+}, { quoted: msg });
+
+await sock.relayMessage(
+jid,
+msgx.message,
+{ messageId: msgx.key.id }
+);
+
+break;
+}
 
       case "donate": {
-        await replyChannel(
-          `💖 *Support ${settings.botName ?? "this bot"}*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `Enjoying the bot? Consider supporting the developer!\n` +
-          `📞 Contact the owner: 233533416608\n` + `*Your support is appreciated💛*`
-        );
-        break;
+  const msgx = generateWAMessageFromContent(jid, {
+    viewOnceMessage: {
+      message: {
+        messageContextInfo: {
+          deviceListMetadata: {},
+          deviceListMetadataVersion: 2,
+        },
+        interactiveMessage: {
+          body: {
+            text:
+              `💖 *Support ${settings.botName ?? "this bot"}*\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `Enjoying the bot? Consider supporting the developer!\n` +
+              `📞 Contact the owner: 233533416608\n\n` +
+              `*Your support is appreciated 💛*`
+          },
+          footer: {
+            text: settings.botName ?? "Yuzuki MD"
+          },
+          nativeFlowMessage: {
+            buttons: [
+              {
+                name: "cta_url",
+                buttonParamsJson: JSON.stringify({
+                  display_text: "💬 Chat Owner",
+                  url: "https://wa.me/233533416608",
+                  merchant_url: "https://wa.me/233533416608"
+                })
+              }
+            ]
+          }
+        }
       }
+    }
+  }, { quoted: msg });
+
+  await sock.relayMessage(
+    jid,
+    msgx.message,
+    { messageId: msgx.key.id }
+  );
+
+  break;
+}
 
       // ── Group Management ──────────────────────────────────────────────────────
 
@@ -956,13 +1362,57 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "link": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        try {
-          const code = await sock.groupInviteCode(jid);
-          await replyChannel(`🔗 *Invite Link:*\nhttps://chat.whatsapp.com/${code}`);
-        } catch { await reply("❌ Failed to get invite link — make sure I'm an admin."); }
-        break;
+  if (!jid?.endsWith("@g.us")) {
+    await reply("This command only works in groups.");
+    break;
+  }
+
+  try {
+    const code = await sock.groupInviteCode(jid);
+    const inviteLink = `https://chat.whatsapp.com/${code}`;
+
+    const msgx = generateWAMessageFromContent(jid, {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            body: {
+              text: `🔗 *Invite Link:*\n${inviteLink}`
+            },
+            footer: {
+              text: settings.botName ?? "Yuzuki MD"
+            },
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: "cta_copy",
+                  buttonParamsJson: JSON.stringify({
+                    display_text: "📋 Copy Link",
+                    copy_code: inviteLink
+                  })
+                }
+              ]
+            }
+          }
+        }
       }
+    }, { quoted: msg });
+
+    await sock.relayMessage(
+      jid,
+      msgx.message,
+      { messageId: msgx.key.id }
+    );
+
+  } catch {
+    await reply("❌ Failed to get invite link — make sure I'm an admin.");
+  }
+
+  break;
+}
 
       case "revoke": {
         if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
@@ -1082,21 +1532,96 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "broadcast": {
-        const text = args.join(" ").trim();
-        if (!text) { await reply(`Usage: ${prefix}broadcast <message>`); break; }
-        try {
-          const chats = await sock.groupFetchAllParticipating();
-          const groupJids = Object.keys(chats);
-          let sent = 0;
-          for (const g of groupJids) {
-            await sock.sendMessage(g, { text }).catch(() => {});
-            sent++;
-            await new Promise(r => setTimeout(r, 600));
+const text = args.join(" ").trim();
+
+if (!text) {
+await reply(`Usage: ${prefix}broadcast <message>`);
+break;
+}
+
+try {
+const chats = await sock.groupFetchAllParticipating();
+const groupJids = Object.keys(chats);
+
+const mediaHeader = await prepareWAMessageMedia(
+  {
+    image: {
+      url: "https://qu.ax/5ChSk"
+    }
+  },
+  {
+    upload: sock.waUploadToServer
+  }
+);
+
+let sent = 0;
+
+for (const g of groupJids) {
+  try {
+    const msgx = generateWAMessageFromContent(g, {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            header: {
+              hasMediaAttachment: true,
+              ...mediaHeader
+            },
+            body: {
+              text:
+                `📣 *Yuzuki MD Broadcast*\n\n${text}`
+            },
+            footer: {
+              text: settings.botName ?? "Yuzuki MD"
+            },
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: "cta_url",
+                  buttonParamsJson: JSON.stringify({
+                    display_text: "📢 WhatsApp Channel",
+                    url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
+                    merchant_url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
+                  })
+                },
+                {
+                  name: "cta_url",
+                  buttonParamsJson: JSON.stringify({
+                    display_text: "💬 Chat Owner",
+                    url: "https://wa.me/233533416608",
+                    merchant_url: "https://wa.me/233533416608"
+                  })
+                }
+              ]
+            }
           }
-          await reply(`✅ Broadcast sent to *${sent}* group(s).`);
-        } catch { await reply("❌ Failed to broadcast."); }
-        break;
+        }
       }
+    }, {});
+
+    await sock.relayMessage(
+      g,
+      msgx.message,
+      { messageId: msgx.key.id }
+    );
+
+    sent++;
+    await new Promise(r => setTimeout(r, 1000));
+
+  } catch {}
+}
+
+await reply(`✅ Broadcast sent to *${sent}* group(s).`);
+
+} catch (e) {
+await reply(`❌ Broadcast: ${e.message}`);
+}
+
+break;
+}
 
       // ── Profile ───────────────────────────────────────────────────────────────
 
@@ -1131,13 +1656,35 @@ export async function handleCommand({ sock, msg, command, args }) {
       // ── Search (free APIs — no key needed) ───────────────────────────────────
 
       case "github": {
-        const username = args[0]?.trim();
-        if (!username) { await reply(`Usage: ${prefix}github <username>`); break; }
-        try {
-          const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`);
-          if (!res.ok) { await reply(`❌ User *${username}* not found on GitHub.`); break; }
-          const u = await res.json();
-          await replyChannel(
+const username = args[0]?.trim();
+
+if (!username) {
+await reply(`Usage: ${prefix}github <username>`);
+break;
+}
+
+try {
+const res = await fetch(
+`https://api.github.com/users/${encodeURIComponent(username)}`
+);
+
+if (!res.ok) {
+  await reply(`❌ User *${username}* not found on GitHub.`);
+  break;
+}
+
+const u = await res.json();
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text:
             `🐙 *GitHub: ${u.login}*\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `📛 *Name:* ${u.name ?? "—"}\n` +
@@ -1146,10 +1693,39 @@ export async function handleCommand({ sock, msg, command, args }) {
             `👥 *Followers:* ${u.followers} | *Following:* ${u.following}\n` +
             `🌍 *Location:* ${u.location ?? "—"}\n` +
             `🔗 ${u.html_url}`
-          );
-        } catch { await reply("❌ Failed to fetch GitHub profile."); }
-        break;
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "🐙 Open GitHub",
+                url: u.html_url,
+                merchant_url: u.html_url
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch {
+await reply("❌ Failed to fetch GitHub profile.");
+}
+
+break;
+}
 
       case "trivia": {
         try {
@@ -1179,48 +1755,187 @@ export async function handleCommand({ sock, msg, command, args }) {
           if (!entry) { await reply(`❌ No definition found for *${term}*.`); break; }
           const def = entry.definition.replace(/[[]]/g, "").slice(0, 400);
           const ex = entry.example.replace(/[[]]/g, "").slice(0, 200);
-          await replyChannel(
-            `📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${def}${ex ? `\n\n_Example: ${ex}_` : ""}`
-          );
+          const urbanText = `📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${def}${ex ? `\n\n_Example: ${ex}_` : ""}`;
+          const urbanUrl = `https://www.urbandictionary.com/define.php?term=${encodeURIComponent(term)}`;
+          const msxUrban = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: urbanText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📖 Open Urban Dictionary", url: urbanUrl, merchant_url: urbanUrl }) },
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Definition", copy_code: def }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxUrban.message, { messageId: msxUrban.key.id });
         } catch { await reply("❌ Failed to fetch definition."); }
         break;
       }
 
       case "wiki": {
-        const query = args.join(" ").trim();
-        if (!query) { await reply(`Usage: ${prefix}wiki <topic>`); break; }
-        try {
-          const searchRes = await fetch(
-            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`
-          );
-          const searchData = await searchRes.json();
-          const title = searchData.query?.search?.[0]?.title;
-          if (!title) { await reply(`❌ Nothing found for *${query}* on Wikipedia.`); break; }
-          const summaryRes = await fetch(
-            `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
-          );
-          const s = await summaryRes.json();
-          await replyChannel(
-            `📚 *${s.title}*\n━━━━━━━━━━━━━━━━━━━\n${s.extract?.slice(0, 500) ?? "No summary available."}\n\n🔗 ${s.content_urls?.desktop?.page ?? ""}`
-          );
-        } catch { await reply("❌ Failed to fetch Wikipedia article."); }
-        break;
+const query = args.join(" ").trim();
+
+if (!query) {
+await reply(`Usage: ${prefix}wiki <topic>`);
+break;
+}
+
+try {
+const searchRes = await fetch(
+`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`
+);
+
+const searchData = await searchRes.json();
+const title = searchData.query?.search?.[0]?.title;
+
+if (!title) {
+  await reply(`❌ Nothing found for *${query}* on Wikipedia.`);
+  break;
+}
+
+const summaryRes = await fetch(
+  `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
+);
+
+const s = await summaryRes.json();
+const wikiUrl = s.content_urls?.desktop?.page ?? "";
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text:
+            `📚 *${s.title}*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `${s.extract?.slice(0, 500) ?? "No summary available."}`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📖 Read on Wikipedia",
+                url: wikiUrl,
+                merchant_url: wikiUrl
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch {
+await reply("❌ Failed to fetch Wikipedia article.");
+}
+
+break;
+}
 
       // ── Stubs: need external API keys or services ─────────────────────────────
 
       case "meme": {
-        try {
-          const res = await fetch("https://meme-api.com/gimme");
-          const data = await res.json();
-          if (!data?.url) { await reply("❌ Could not fetch a meme right now. Try again."); break; }
-          await sock.sendMessage(jid, {
-            image: { url: data.url },
-            caption: `😂 *${data.title}*\n👍 ${data.ups} upvotes · r/${data.subreddit}`,
-          }, { quoted: msg });
-        } catch { await reply("❌ Failed to fetch meme."); }
-        break;
+try {
+const res = await fetch("https://meme-api.com/gimme/5");
+const data = await res.json();
+
+if (!data?.memes?.length) {
+  await reply("❌ Could not fetch memes right now. Try again.");
+  break;
+}
+
+const cards = await Promise.all(
+  data.memes.map(async (meme) => {
+    const media = await prepareWAMessageMedia(
+      {
+        image: { url: meme.url }
+      },
+      {
+        upload: sock.waUploadToServer
       }
+    );
+
+    return {
+      header: {
+        ...media,
+        title: "",
+        subtitle: `r/${meme.subreddit}`,
+        hasMediaAttachment: true
+      },
+      body: {
+        text:
+          `😂 *${meme.title}*\n` +
+          `👍 ${meme.ups} upvotes`
+      },
+      nativeFlowMessage: {
+        buttons: [
+          {
+            name: "cta_url",
+            buttonParamsJson: JSON.stringify({
+              display_text: "🔗 Open Reddit Post",
+              url: meme.postLink,
+              merchant_url: meme.postLink
+            })
+          }
+        ]
+      }
+    };
+  })
+);
+
+const carouselMsg = generateWAMessageFromContent(
+  jid,
+  {
+    viewOnceMessage: {
+      message: {
+        messageContextInfo: {
+          deviceListMetadata: {},
+          deviceListMetadataVersion: 2,
+        },
+        interactiveMessage: {
+          body: {
+            text: "😂 Meme Carousel • Swipe for more memes"
+          },
+          carouselMessage: {
+            cards,
+            messageVersion: 1
+          }
+        }
+      }
+    }
+  },
+  { quoted: msg }
+);
+
+await sock.relayMessage(
+  jid,
+  carouselMsg.message,
+  { messageId: carouselMsg.key.id }
+);
+
+} catch (e) {
+await reply(`❌ Failed to fetch memes: ${e.message}`);
+}
+
+break;
+}
 
       case "sticker": {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.imageMessage){await reply(`Reply to an image with ${prefix}sticker`);break;}
@@ -1260,10 +1975,75 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "short": {
-        const u=args[0]?.trim();if(!u||!/^https?:\/\/.+/i.test(u)){await reply(`Usage: ${prefix}short <url>`);break;}
-        try{const r=await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(u)}`);const s=await r.text();if(!s.startsWith("https://")){await reply("❌ Failed.");break;}await replyChannel(`🔗 *Shortened:*\n${s}`);}catch(e){await reply(`❌ Short: ${e.message}`);}
-        break;
+const u = args[0]?.trim();
+
+if (!u || !/^https?:\/\/.+/i.test(u)) {
+await reply(`Usage: ${prefix}short <url>`);
+break;
+}
+
+try {
+const r = await fetch(
+`https://tinyurl.com/api-create.php?url=${encodeURIComponent(u)}`
+);
+
+const s = await r.text();
+
+if (!s.startsWith("https://")) {
+  await reply("❌ Failed.");
+  break;
+}
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text: `🔗 *Shortened URL:*\n${s}`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "🌐 Open Link",
+                url: s,
+                merchant_url: s
+              })
+            },
+            {
+              name: "cta_copy",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📋 Copy Link",
+                copy_code: s
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch (e) {
+await reply(`❌ Short: ${e.message}`);
+}
+
+break;
+}
 
       case "ss": {
         const u=args[0]?.trim();if(!u||!/^https?:\/\/.+/i.test(u)){await reply(`Usage: ${prefix}ss <url>`);break;}
@@ -1288,18 +2068,90 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       case "chatgpt": {
         const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}chatgpt <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"openai");await replyChannel(`🤖 *ChatGPT:*\n${res}`);}catch(e){await reply(`❌ ChatGPT: ${e.message}`);}
+        try{const res=await polliText([{role:"user",content:text}],"openai");const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text:`🤖 *ChatGPT:*\n${res}` },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Response",
+              copy_code:res
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ ChatGPT: ${e.message}`);}
         break;
       }
       case "claude": {
         const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}claude <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"openai-large");await replyChannel(`🧠 *Claude:*\n${res}`);}catch(e){await reply(`❌ Claude: ${e.message}`);}
+        try{const res=await polliText([{role:"user",content:text}],"openai-large");const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text:`🧠 *Claude:*\n${res}` },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Response",
+              copy_code:res
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ Claude: ${e.message}`);}
         break;
       }
 
       case "gemini": {
         const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}gemini <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"gemini");await replyChannel(`✨ *Gemini:*\n${res}`);}catch(e){await reply(`❌ Gemini: ${e.message}`);}
+        try{const res=await polliText([{role:"user",content:text}],"gemini");const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text:`✨ *Gemini:*\n${res}` },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Response",
+              copy_code:res
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ Gemini: ${e.message}`);}
         break;
       }
 
@@ -1330,21 +2182,140 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
 
       case "summarize": {
-        const ctx2=msg.message?.extendedTextMessage?.contextInfo;
-        const qt=ctx2?.quotedMessage?.conversation||ctx2?.quotedMessage?.extendedTextMessage?.text;
-        const toSum=args.join(" ").trim()||qt;
-        if(!toSum){await reply(`Usage: ${prefix}summarize <text>  or reply to a message`);break;}
-        try{const res=await polliText([{role:"user",content:`Summarize in clear bullet points:\n\n${toSum}`}],"openai");await replyChannel(`📝 *Summary:*\n${res}`);}catch(e){await reply(`❌ Summarize: ${e.message}`);}
-        break;
+const ctx2 = msg.message?.extendedTextMessage?.contextInfo;
+const qt =
+ctx2?.quotedMessage?.conversation ||
+ctx2?.quotedMessage?.extendedTextMessage?.text;
+
+const toSum = args.join(" ").trim() || qt;
+
+if (!toSum) {
+await reply(
+`Usage: ${prefix}summarize <text>  or reply to a message`
+);
+break;
+}
+
+try {
+const res = await polliText(
+[
+{
+role: "user",
+content: `Summarize in clear bullet points:\n\n${toSum}`
+}
+],
+"openai"
+);
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text: `📝 *Summary:*\n${res}`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_copy",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📋 Copy Summary",
+                copy_code: res
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch (e) {
+await reply(`❌ Summarize: ${e.message}`);
+}
+
+break;
+}
 
       case "translate": {
-        const lang=args[0]?.toLowerCase(),text2=args.slice(1).join(" ").trim();
-        if(!lang||!text2){await reply(`Usage: ${prefix}translate <lang_code> <text>\nCodes: en es fr de ja zh ar pt ru ko hi`);break;}
-        try{const r=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text2)}&langpair=en|${encodeURIComponent(lang)}`);const d=await r.json();const tr=d.responseData?.translatedText;
-          if(!tr||tr===text2){await reply("❌ Translation failed. Check the language code.");break;}await replyChannel(`🌐 *Translated (→${lang}):*\n${tr}`);}catch(e){await reply(`❌ Translate: ${e.message}`);}
-        break;
+const lang = args[0]?.toLowerCase();
+const text2 = args.slice(1).join(" ").trim();
+
+if (!lang || !text2) {
+await reply(
+`Usage: ${prefix}translate <lang_code> <text>\nCodes: en es fr de ja zh ar pt ru ko hi`
+);
+break;
+}
+
+try {
+const r = await fetch(
+`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text2)}&langpair=en|${encodeURIComponent(lang)}`
+);
+
+const d = await r.json();
+const tr = d.responseData?.translatedText;
+
+if (!tr || tr === text2) {
+  await reply("❌ Translation failed. Check the language code.");
+  break;
+}
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text: `🌐 *Translated (→${lang}):*\n${tr}`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_copy",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📋 Copy Translation",
+                copy_code: tr
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch (e) {
+await reply(`❌ Translate: ${e.message}`);
+}
+
+break;
+}
 
       case "ytmp3": {
         const url=args[0]?.trim();if(!url||!/youtu/.test(url)){await reply(`Usage: ${prefix}ytmp3 <YouTube URL>`);break;}
@@ -1546,27 +2517,110 @@ export async function handleCommand({ sock, msg, command, args }) {
           if(!dl){await reply("❌ Could not extract download link.");break;}
           const fname=html.match(/class="filename">([^<]+)/)?.[1]||"mediafire_file";
           const fsize=html.match(/class="fileSize">([^<]+)/)?.[1]||"?";
-          await replyChannel(`📥 *Mediafire Download*\n━━━━━━━━━━━━━━━━━━━\n📄 *File:* ${fname}\n📦 *Size:* ${fsize}\n🔗 ${dl}`);
+          const mfText = `📥 *Mediafire Download*\n━━━━━━━━━━━━━━━━━━━\n📄 *File:* ${fname}\n📦 *Size:* ${fsize}\n🔗 ${dl}`;
+          const msxMf = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: mfText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📥 Download File", url: dl, merchant_url: dl }) },
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Link", copy_code: dl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxMf.message, { messageId: msxMf.key.id });
         }catch(e){await reply(`❌ mediafire: ${e.message}`);}
         break;
       }
 
       case "apk": {
-        const name=args.join(" ").trim();if(!name){await reply(`Usage: ${prefix}apk <app name>`);break;}
-        try{
-          const r=await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(name+" APK download apkpure.com")}&format=json&no_redirect=1&no_html=1`);
-          const d=await r.json();
-          const link=d.RelatedTopics?.find(t=>t.FirstURL?.includes("apkpure"))?.FirstURL;
-          await replyChannel(
-            `📥 *APK Search: ${name}*\n━━━━━━━━━━━━━━━━━━━\n`+
-            (link?`🔗 ${link}\n\n`:"No direct APK link found.\n\n")+
-            `Try these sites directly:\n`+
-            `• https://apkpure.com/search?q=${encodeURIComponent(name)}\n`+
-            `• https://www.apkmirror.com/?s=${encodeURIComponent(name)}`
-          );
-        }catch(e){await reply(`❌ apk: ${e.message}`);}
-        break;
+const name = args.join(" ").trim();
+
+if (!name) {
+await reply(`Usage: ${prefix}apk <app name>`);
+break;
+}
+
+try {
+const r = await fetch(
+`https://api.duckduckgo.com/?q=${encodeURIComponent(name + " APK download apkpure.com")}&format=json&no_redirect=1&no_html=1`
+);
+
+const d = await r.json();
+
+const link = d.RelatedTopics?.find(
+  t => t.FirstURL?.includes("apkpure")
+)?.FirstURL;
+
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text:
+            `📥 *APK Search: ${name}*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            (link
+              ? `🔗 Direct APK result found.\n\n`
+              : `No direct APK link found.\n\n`) +
+            `Use the buttons below to search APK repositories.`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            ...(link ? [{
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📥 Open APK",
+                url: link,
+                merchant_url: link
+              })
+            }] : []),
+
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📦 APKPure",
+                url: `https://apkpure.com/search?q=${encodeURIComponent(name)}`,
+                merchant_url: `https://apkpure.com/search?q=${encodeURIComponent(name)}`
+              })
+            },
+
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "🔍 APKMirror",
+                url: `https://www.apkmirror.com/?s=${encodeURIComponent(name)}`,
+                merchant_url: `https://www.apkmirror.com/?s=${encodeURIComponent(name)}`
+              })
+            }
+          ]
+        }
       }
+    }
+  }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
+);
+
+} catch (e) {
+await reply(`❌ apk: ${e.message}`);
+}
+
+break;
+}
 
       case "capcut": {
         const u=args[0]?.trim();if(!u||!/capcut/.test(u)){await reply(`Usage: ${prefix}capcut <CapCut template URL>`);break;}
@@ -1598,10 +2652,23 @@ export async function handleCommand({ sock, msg, command, args }) {
           let txt=`🔍 *Search: ${q}*\n━━━━━━━━━━━━━━━━━━━\n`;
           if(abs)txt+=`${abs}\n\n`;
           if(rel.length)txt+=`*Related:*\n${rel.join("\n")}`;
-          await replyChannel(txt);
+          const ddgUrl = `https://duckduckgo.com/?q=${encodeURIComponent(q)}`;
+          const msxGoo = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: txt },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔍 Search on DuckDuckGo", url: ddgUrl, merchant_url: ddgUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxGoo.message, { messageId: msxGoo.key.id });
         }catch(e){await reply(`❌ Search: ${e.message}`);}
         break;
       }
+      case "yts":
       case "ytsearch": {
         const q=args.join(" ").trim();if(!q){await reply(`Usage: ${prefix}ytsearch <query>`);break;}
         try{
@@ -1611,7 +2678,20 @@ export async function handleCommand({ sock, msg, command, args }) {
             const dur=v.lengthSeconds?`${Math.floor(v.lengthSeconds/60)}:${String(v.lengthSeconds%60).padStart(2,"0")}`:"?:??";
             return `${i+1}. *${v.title}*\n   ⏱ ${dur} · 👁 ${v.viewCount?.toLocaleString()??"?"} \n   🔗 https://youtu.be/${v.videoId}`;
           }).join("\n\n");
-          await replyChannel(txt);
+          const ytSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+          const msxYts = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: txt },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔍 Search on YouTube", url: ytSearchUrl, merchant_url: ytSearchUrl }) },
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "▶️ YouTube", url: "https://youtube.com", merchant_url: "https://youtube.com" }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxYts.message, { messageId: msxYts.key.id });
         }catch(e){await reply(`❌ YT Search: ${e.message}`);}
         break;
       }
@@ -1622,7 +2702,20 @@ export async function handleCommand({ sock, msg, command, args }) {
           const r=await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
           if(!r.ok){await reply(`❌ City not found: ${city}`);break;}const d=await r.json();
           const cur=d.current_condition[0],area=d.nearest_area[0];
-          await replyChannel(`🌤️ *Weather: ${area.areaName[0].value}, ${area.country[0].value}*\n━━━━━━━━━━━━━━━━━━━\n🌡️ *Temp:* ${cur.temp_C}°C (feels ${cur.FeelsLikeC}°C)\n☁️ *Condition:* ${cur.weatherDesc[0].value}\n💧 *Humidity:* ${cur.humidity}%\n💨 *Wind:* ${cur.windspeedKmph} km/h`);
+          const weatherText = `🌤️ *Weather: ${area.areaName[0].value}, ${area.country[0].value}*\n━━━━━━━━━━━━━━━━━━━\n🌡️ *Temp:* ${cur.temp_C}°C (feels ${cur.FeelsLikeC}°C)\n☁️ *Condition:* ${cur.weatherDesc[0].value}\n💧 *Humidity:* ${cur.humidity}%\n💨 *Wind:* ${cur.windspeedKmph} km/h`;
+          const wttrUrl = `https://wttr.in/${encodeURIComponent(city)}`;
+          const msxWth = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: weatherText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🌐 Full Forecast", url: wttrUrl, merchant_url: wttrUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxWth.message, { messageId: msxWth.key.id });
         }catch(e){await reply(`❌ Weather: ${e.message}`);}
         break;
       }
@@ -1638,6 +2731,7 @@ export async function handleCommand({ sock, msg, command, args }) {
         break;
       }
 
+      case "lyric":
       case "lyrics": {
         const q=args.join(" ").trim();if(!q){await reply(`Usage: ${prefix}lyrics <artist> - <song>\nExample: ${prefix}lyrics Drake - Gods Plan`);break;}
         const parts=q.split(/\s*[\-–]\s*/);const artist=parts[0]?.trim(),song=parts[1]?.trim();
@@ -1646,7 +2740,34 @@ export async function handleCommand({ sock, msg, command, args }) {
           const r=await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(song)}`);
           const d=await r.json();if(d.error||!d.lyrics){await reply(`❌ Lyrics not found for *${q}*`);break;}
           const lyr=d.lyrics.trim().slice(0,3000);
-          await replyChannel(`🎵 *${artist} — ${song}*\n━━━━━━━━━━━━━━━━━━━\n${lyr}${d.lyrics.length>3000?"\n...(truncated)":""}`);
+          const finalLyrics =
+  `🎵 *${artist} — ${song}*\n━━━━━━━━━━━━━━━━━━━\n${lyr}${d.lyrics.length>3000?"\n...(truncated)":""}`;
+
+const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text: finalLyrics },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Lyrics",
+              copy_code:lyr
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         }catch(e){await reply(`❌ Lyrics: ${e.message}`);}
         break;
       }
@@ -1658,7 +2779,34 @@ export async function handleCommand({ sock, msg, command, args }) {
           if(!r.ok){await reply(`❌ No definition found for *${word}*. Try ${prefix}urban ${word}`);break;}
           const data=await r.json();const entry=data[0];
           const meanings=entry.meanings.slice(0,2).map(m=>{const d=m.definitions[0];return `*${m.partOfSpeech}*: ${d.definition}${d.example?`\n_"${d.example}"_`:""}`;}).join("\n\n");
-          await replyChannel(`📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${meanings}`);
+          const definitionText =
+  `📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${meanings}`;
+
+const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text: definitionText },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Definition",
+              copy_code: meanings
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         }catch(e){await reply(`❌ Define: ${e.message}`);}
         break;
       }
@@ -1724,7 +2872,20 @@ export async function handleCommand({ sock, msg, command, args }) {
         try{
           const info=await ytdl.getInfo(url);const d=info.videoDetails;
           const mins=Math.floor(parseInt(d.lengthSeconds)/60),secs=parseInt(d.lengthSeconds)%60;
-          await replyChannel(`▶️ *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n👤 *Channel:* ${d.author.name}\n⏱️ *Duration:* ${mins}:${String(secs).padStart(2,"0")}\n👁️ *Views:* ${parseInt(d.viewCount).toLocaleString()}\n📅 *Published:* ${d.publishDate??"N/A"}\n🔗 ${d.video_url}`);
+          const ytInfoText = `▶️ *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n👤 *Channel:* ${d.author.name}\n⏱️ *Duration:* ${mins}:${String(secs).padStart(2,"0")}\n👁️ *Views:* ${parseInt(d.viewCount).toLocaleString()}\n📅 *Published:* ${d.publishDate??"N/A"}\n🔗 ${d.video_url}`;
+          const msxYti = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: ytInfoText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "▶️ Watch on YouTube", url: d.video_url, merchant_url: d.video_url }) },
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Link", copy_code: d.video_url }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxYti.message, { messageId: msxYti.key.id });
         }catch(e){await reply(`❌ ytinfo: ${e.message}`);}
         break;
       }
@@ -1735,14 +2896,26 @@ export async function handleCommand({ sock, msg, command, args }) {
           const d=await invGet(`/api/v1/playlists/${pid}`);
           if(!d||d.error){await reply("❌ Playlist not found.");break;}
           const top3=(d.videos||[]).slice(0,3).map((v,i)=>`  ${i+1}. *${v.title}* (${fmtDur(v.lengthSeconds)})`).join("\n");
-          await replyChannel(
-            `📋 *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n`+
+          const plText = `📋 *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n`+
             `👤 *Channel:* ${d.author}\n`+
             `📹 *Videos:* ${d.videoCount}\n`+
             `👁️ *Views:* ${fmtNum(d.viewCount)}\n\n`+
             `*Top videos:*\n${top3}\n\n`+
-            `🔗 https://www.youtube.com/playlist?list=${pid}`
-          );
+            `🔗 https://www.youtube.com/playlist?list=${pid}`;
+          const plUrl = `https://www.youtube.com/playlist?list=${pid}`;
+          const msxPl = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: plText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📋 Open Playlist", url: plUrl, merchant_url: plUrl }) },
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Link", copy_code: plUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxPl.message, { messageId: msxPl.key.id });
         }catch(e){await reply(`❌ ytplaylist: ${e.message}`);}
         break;
       }
@@ -1752,11 +2925,23 @@ export async function handleCommand({ sock, msg, command, args }) {
         try{
           const d=await invGet(`/api/v1/trending?region=${region}&type=music`)||await invGet(`/api/v1/trending?region=${region}`);
           if(!d?.length){await reply("❌ Could not fetch trending videos.");break;}
-          const txt=`🔥 *Trending on YouTube (${region})*\n━━━━━━━━━━━━━━━━━━━\n`+
+          const trendTxt=`🔥 *Trending on YouTube (${region})*\n━━━━━━━━━━━━━━━━━━━\n`+
             d.slice(0,5).map((v,i)=>
               `${i+1}. *${v.title}*\n   👤 ${v.author} · 👁 ${fmtNum(v.viewCount)} · ⏱ ${fmtDur(v.lengthSeconds)}\n   🔗 https://youtu.be/${v.videoId}`
             ).join("\n\n");
-          await replyChannel(txt);
+          const trendUrl = `https://www.youtube.com/feed/trending?gl=${region}`;
+          const msxTrd = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: trendTxt },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔥 YouTube Trending", url: trendUrl, merchant_url: trendUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxTrd.message, { messageId: msxTrd.key.id });
         }catch(e){await reply(`❌ yttrend: ${e.message}`);}
         break;
       }
@@ -1770,7 +2955,19 @@ export async function handleCommand({ sock, msg, command, args }) {
           const top5=d.comments.slice(0,5).map((c,i)=>
             `${i+1}. *${c.author}*\n   ${c.content?.slice(0,120)}${(c.content?.length||0)>120?"...":""}\n   👍 ${fmtNum(c.likeCount)}`
           ).join("\n\n");
-          await replyChannel(`💬 *Top Comments*\n━━━━━━━━━━━━━━━━━━━\n${top5}`);
+          const videoUrl = `https://youtu.be/${vid}`;
+          const msxCmt = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: `💬 *Top Comments*\n━━━━━━━━━━━━━━━━━━━\n${top5}` },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "▶️ Watch Video", url: videoUrl, merchant_url: videoUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxCmt.message, { messageId: msxCmt.key.id });
         }catch(e){await reply(`❌ ytcomments: ${e.message}`);}
         break;
       }
@@ -1786,12 +2983,22 @@ export async function handleCommand({ sock, msg, command, args }) {
             : d.isLiveContent
               ? "⚫ Stream ended"
               : "⚫ Not a live stream";
-          await replyChannel(
-            `📡 *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n`+
+          const liveText = `📡 *${d.title}*\n━━━━━━━━━━━━━━━━━━━\n`+
             `${status}\n`+
             `👤 *Channel:* ${d.author.name}\n`+
-            `🔗 ${d.video_url}`
-          );
+            `🔗 ${d.video_url}`;
+          const msxLive = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: liveText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: isLive ? "🔴 Watch Live" : "▶️ Watch Video", url: d.video_url, merchant_url: d.video_url }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxLive.message, { messageId: msxLive.key.id });
         }catch(e){await reply(`❌ ytlive: ${e.message}`);}
         break;
       }
@@ -1801,12 +3008,23 @@ export async function handleCommand({ sock, msg, command, args }) {
         try{
           const info=await ytdl.getInfo(u);const d=info.videoDetails;
           const subs=d.author?.subscriberCount;
-          await replyChannel(
-            `📊 *Channel Stats*\n━━━━━━━━━━━━━━━━━━━\n`+
+          const chanUrl = d.author.channel_url??`https://www.youtube.com/channel/${d.author.id}`;
+          const subText = `📊 *Channel Stats*\n━━━━━━━━━━━━━━━━━━━\n`+
             `👤 *Channel:* ${d.author.name}\n`+
             `🔔 *Subscribers:* ${subs?fmtNum(subs):"Hidden"}\n`+
-            `🔗 ${d.author.channel_url??`https://www.youtube.com/channel/${d.author.id}`}`
-          );
+            `🔗 ${chanUrl}`;
+          const msxSub = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: subText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📺 Open Channel", url: chanUrl, merchant_url: chanUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxSub.message, { messageId: msxSub.key.id });
         }catch(e){await reply(`❌ ytsub: ${e.message}`);}
         break;
       }
@@ -1815,13 +3033,23 @@ export async function handleCommand({ sock, msg, command, args }) {
         const u=args[0]?.trim();if(!u){await reply(`Usage: ${prefix}ytlike <YouTube video URL>`);break;}
         try{
           const info=await ytdl.getInfo(u);const d=info.videoDetails;
-          await replyChannel(
-            `👍 *Video Stats*\n━━━━━━━━━━━━━━━━━━━\n`+
+          const likeText = `👍 *Video Stats*\n━━━━━━━━━━━━━━━━━━━\n`+
             `📹 *${d.title}*\n`+
             `👍 *Likes:* ${d.likes?fmtNum(d.likes):"Hidden"}\n`+
             `👁️ *Views:* ${fmtNum(d.viewCount)}\n`+
-            `🔗 ${d.video_url}`
-          );
+            `🔗 ${d.video_url}`;
+          const msxLike = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: likeText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "▶️ Watch Video", url: d.video_url, merchant_url: d.video_url }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxLike.message, { messageId: msxLike.key.id });
         }catch(e){await reply(`❌ ytlike: ${e.message}`);}
         break;
       }
@@ -2275,7 +3503,19 @@ export async function handleCommand({ sock, msg, command, args }) {
           const dl = await dlQuoted(msg, jid);
           if (dl?.buf) { image = dl.buf; mime = "image/jpeg"; }
           const answer = await mathgpt({ question: text, think: args[0] === "--think", image, mime, ext });
-          reply(`🧮 *MathGPT*\n\n*Q:* ${text}\n\n*A:* ${answer}`);
+          const mgText = `🧮 *MathGPT*\n\n*Q:* ${text}\n\n*A:* ${answer}`;
+          const msxMg = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: mgText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Answer", copy_code: answer }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxMg.message, { messageId: msxMg.key.id });
           useLimit(sender, mgCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
@@ -2298,7 +3538,19 @@ export async function handleCommand({ sock, msg, command, args }) {
           const client = new FeloClient();
           const answer = await client.search(text);
           const answerText = typeof answer === "string" ? answer : JSON.stringify(answer, null, 2);
-          reply(`🌐 *Felo AI Search*\n\n*Q:* ${text}\n\n${answerText}`);
+          const feloFullText = `🌐 *Felo AI Search*\n\n*Q:* ${text}\n\n${answerText}`;
+          const msxFelo = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: feloFullText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Answer", copy_code: answerText }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxFelo.message, { messageId: msxFelo.key.id });
           useLimit(sender, feloCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
@@ -2319,7 +3571,19 @@ export async function handleCommand({ sock, msg, command, args }) {
         await sock.sendMessage(jid, { react: { text: "💬", key: msg.key } });
         try {
           const answer = await chatex(text);
-          reply(`💬 *ChatEx AI*\n\n*Q:* ${text}\n\n${answer}`);
+          const cxFullText = `💬 *ChatEx AI*\n\n*Q:* ${text}\n\n${answer}`;
+          const msxCx = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: cxFullText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Response", copy_code: answer }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxCx.message, { messageId: msxCx.key.id });
           useLimit(sender, cxCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
@@ -2537,59 +3801,6 @@ export async function handleCommand({ sock, msg, command, args }) {
         break;
       }
 
-      // ── .ytsearch — search YouTube by title ──────────────────────────
-      case "yts":
-      case "ytsearch": {
-        if (!text) return reply(`🔍 Usage: ${prefix}ytsearch <query>\nExample: ${prefix}ytsearch lofi beats`);
-        await sock.sendMessage(jid, { react: { text: "🔍", key: msg.key } });
-        try {
-          const results = await ytSearchFn(text, 8);
-          if (!results.length) throw new Error("No results found.");
-          let out = `🎬 *YouTube Search: "${text}"*\n${"─".repeat(30)}\n\n`;
-          results.forEach((v, i) => {
-            const dur = v.duration ? `${Math.floor(v.duration/60)}:${String(v.duration%60).padStart(2,"0")}` : "?";
-            out += `*${i+1}.* ${v.title}\n👤 ${v.author} | ⏱ ${dur}\n🔗 ${v.url}\n\n`;
-          });
-          out += `💡 Use *${prefix}mp3 <title>* or *${prefix}play <title>* to download.`;
-          reply(out.trim());
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ YouTube search failed: ${e.message}`);
-        }
-        break;
-      }
-
-      // ── .lyrics — song lyrics (completely free, no key) ──────────────
-      case "lyric":
-      case "lyrics": {
-        if (!text) return reply(`🎤 Usage: ${prefix}lyrics <artist> - <song>\nExample: ${prefix}lyrics Ed Sheeran - Shape of You`);
-        await sock.sendMessage(jid, { react: { text: "🎤", key: msg.key } });
-        try {
-          let artist = "", songTitle = "";
-          if (text.includes(" - ")) {
-            [artist, songTitle] = text.split(" - ").map(s => s.trim());
-          } else {
-            const parts = text.split(" ");
-            artist = parts[0];
-            songTitle = parts.slice(1).join(" ");
-          }
-          if (!songTitle) throw new Error("Use format: artist - song title");
-          const lyricsText = await getLyrics(artist, songTitle);
-          const chunks = [];
-          for (let ci = 0; ci < lyricsText.length; ci += 3000) chunks.push(lyricsText.slice(ci, ci + 3000));
-          for (let ci = 0; ci < Math.min(chunks.length, 4); ci++) {
-            const hdr = ci === 0 ? `🎤 *${songTitle}*\n👤 ${artist}\n${"─".repeat(28)}\n\n` : "";
-            await reply(`${hdr}${chunks[ci]}`);
-          }
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Lyrics not found: ${e.message}\n💡 Format: ${prefix}lyrics Artist - Song Title`);
-        }
-        break;
-      }
-
       // ── .pindown — download a specific Pinterest pin URL ─────────────
       case "pindown":
       case "pindl": {
@@ -2677,7 +3888,7 @@ export async function handleCommand({ sock, msg, command, args }) {
         const settings = loadSettings();
         const uptime = process.uptime();
         const d = Math.floor(uptime / 86400), h = Math.floor((uptime % 86400) / 3600), m = Math.floor((uptime % 3600) / 60), s = Math.floor(uptime % 60);
-        reply(
+        const botInfoText =
           `🤖 *Bot Info*\n━━━━━━━━━━━━━━━━━\n` +
           `📛 Name: *Yuzuki MD*\n` +
           `👑 Owners: *${getOwners().length}*\n` +
@@ -2685,8 +3896,20 @@ export async function handleCommand({ sock, msg, command, args }) {
           `🖥️ Platform: *${process.platform}*\n` +
           `🔧 Node: *${process.version}*\n` +
           `💾 RAM: *${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB*\n` +
-          `📂 Mode: *${settings.mode || "public"}*`
-        );
+          `📂 Mode: *${settings.mode || "public"}*`;
+        const msxInfo = generateWAMessageFromContent(jid, {
+          viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+            interactiveMessage: {
+              body: { text: botInfoText },
+              footer: { text: settings.botName ?? "Yuzuki MD" },
+              nativeFlowMessage: { buttons: [
+                { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "💻 GitHub Repo", url: "https://github.com/KyokaAizen665/Yuzuki-Md-V2", merchant_url: "https://github.com/KyokaAizen665/Yuzuki-Md-V2" }) },
+                { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 WA Channel", url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326", merchant_url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" }) }
+              ]}
+            }
+          }}
+        }, { quoted: msg });
+        await sock.relayMessage(jid, msxInfo.message, { messageId: msxInfo.key.id });
         break;
       }
 

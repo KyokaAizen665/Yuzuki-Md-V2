@@ -278,7 +278,7 @@ export async function startBot() {
         //Next upgrage add contextInfo to this message for a thumbnail (small)
         sock.sendMessage(ownerJid, {
           text:
-            `⚡ *${botName} MD is now online!*\n` +
+            `⚡ *Yuzuki MD is now online!*\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `✅ *Status:* Connected\n` +
             `📱 *Bot Number:* ${state.phoneNumber ?? "unknown"}\n` +
@@ -286,7 +286,7 @@ export async function startBot() {
             `🔑 *Prefix:* ${startupCfg.prefix ?? "."}\n` +
             `🕐 *Time:* ${now}\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
-            `_Type ${startupCfg.prefix ?? "."}menu to get started_`,
+            `_Type ${startupCfg.prefix ?? "."}menu or .allmenu to get started_`,
         }).catch(() => {}); // silent if owner hasn't messaged bot yet
       }
     }

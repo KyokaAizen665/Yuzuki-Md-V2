@@ -77,7 +77,7 @@ export function removeOwner(number) {
   return s.owners.length < before;
 }
 
-export function isOwner(senderJid, settings) {
+export function isOwner(senderJid, settings = loadSettings()) {
   const clean = (jid) => jid?.split("@")[0]?.split(":")[0] ?? "";
   const sender = clean(senderJid);
   // 1. Check settings ownerNumber

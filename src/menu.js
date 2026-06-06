@@ -168,7 +168,7 @@ export function buildMain(botName, prefix, runtime = {}) {
 ╭─〔 👤 *𝐔𝐬𝐞𝐫 𝐈𝐧𝐟𝐨* 〕
 │ 𝗡𝗮𝗺𝗲 : *${pushname}*
 │ 𝗥𝗮𝗻𝗸 : *${userRank}*
-╰────────────────╯
+╰───────────────╯
 
 ╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕
 │ 𝗣𝗿𝗲𝗳𝗶𝘅    : *${prefix}*
@@ -178,9 +178,9 @@ export function buildMain(botName, prefix, runtime = {}) {
 ╰─────────────────╯
 
 ✨━━〔 📂 *𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━✨
-╭───────────────╮
+╭──────────────╮
 ${catLines}
-╰───────────────╯
+╰──────────────╯
 
 ╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕
 │ Type *${prefix}<category>* to open it
