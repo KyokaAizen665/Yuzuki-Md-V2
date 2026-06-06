@@ -355,11 +355,19 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       // ── Product card sent alongside the main menu ──────────────────
       try {
-        // Try to attach the menu image as the product thumbnail
+        const cardTitle    = settings.productTitle    || botName;
+        const cardDesc     = settings.productDesc     || "I'm aizen";
+        const cardCurrency = settings.productCurrency || "USD";
+        const cardPrice    = settings.productPrice    || 1000000000;
+        const cardImgUrl   = settings.productImgUrl   || imageUrl;
+        const cardImgSrc   = settings.productImgUrl
+          ? { image: { url: cardImgUrl } }
+          : (menuThumb ? { image: menuThumb } : { image: { url: imageUrl } });
+
         let productImage;
         try {
           const productMedia = await prepareWAMessageMedia(
-            menuThumb ? { image: menuThumb } : { image: { url: imageUrl } },
+            cardImgSrc,
             { upload: sock.waUploadToServer }
           );
           productImage = productMedia.imageMessage;
@@ -369,10 +377,10 @@ export async function handleCommand({ sock, msg, command, args }) {
           productMessage: {
             product: {
               productId: "1337",
-              title: botName,
-              description: "I'm aizen",
-              currencyCode: "USD",
-              priceAmount1000: 1000000000,
+              title: cardTitle,
+              description: cardDesc,
+              currencyCode: cardCurrency,
+              priceAmount1000: cardPrice,
               retailerId: "yuzuki-v2",
               ...(productImage ? { productImage } : {}),
             },
@@ -401,6 +409,34 @@ export async function handleCommand({ sock, msg, command, args }) {
       }
       setSetting("menuBgUrl", url);
       await reply(`Menu background set! Send ${prefix}menu to preview it.`);
+      break;
+    }
+
+    case "setproductimg": {
+      const purl = args.join(" ").trim();
+      if (!purl) { await reply(`Usage: ${prefix}setproductimg <image url>\nUse *clear* to reset to the menu background.`); break; }
+      if (purl === "clear") { setSetting("productImgUrl", ""); await reply("Product card image reset to menu background."); break; }
+      if (!/^https?:\/\/.+/i.test(purl)) { await reply("Please provide a valid http/https URL."); break; }
+      setSetting("productImgUrl", purl);
+      await reply(`Product card image set! Type ${prefix}menu to see it.`);
+      break;
+    }
+
+    case "setproducttitle": {
+      const ptitle = body.slice(prefix.length + command.length).trim();
+      if (!ptitle) { await reply(`Usage: ${prefix}setproducttitle <title>\nUse *clear* to reset to the bot name.`); break; }
+      if (ptitle === "clear") { setSetting("productTitle", ""); await reply("Product card title reset to bot name."); break; }
+      setSetting("productTitle", ptitle);
+      await reply(`Product card title set to: *${ptitle}*`);
+      break;
+    }
+
+    case "setproductdesc": {
+      const pdesc = body.slice(prefix.length + command.length).trim();
+      if (!pdesc) { await reply(`Usage: ${prefix}setproductdesc <description>\nUse *clear* to reset to default.`); break; }
+      if (pdesc === "clear") { setSetting("productDesc", ""); await reply("Product card description reset to default."); break; }
+      setSetting("productDesc", pdesc);
+      await reply(`Product card description set to: *${pdesc}*`);
       break;
     }
 
@@ -2521,12 +2557,12 @@ export async function handleCommand({ sock, msg, command, args }) {
       case "prodmsg":
       case "fakeshop": {
         const pArgs = body.slice(prefix.length + command.length).trim().split("|").map(s => s.trim());
-        const pTitle    = pArgs[0] || settings.botName || "Yuzuki MD";
-        const pDesc     = pArgs[1] || "I'm aizen";
-        const pPrice    = pArgs[2] ? Math.round(parseFloat(pArgs[2]) * 1_000_000) : 1_000_000_000;
+        const pTitle    = pArgs[0] || settings.productTitle    || settings.botName || "Yuzuki MD";
+        const pDesc     = pArgs[1] || settings.productDesc     || "I'm aizen";
+        const pPrice    = pArgs[2] ? Math.round(parseFloat(pArgs[2]) * 1_000_000) : (settings.productPrice || 1_000_000_000);
         const pRetailer = pArgs[3] || "yuzuki-v2";
-        const pCurrency = pArgs[4] || "USD";
-        const pImgUrl   = pArgs[5] || settings.menuBgUrl || MENU_BG;
+        const pCurrency = pArgs[4] || settings.productCurrency || "USD";
+        const pImgUrl   = pArgs[5] || settings.productImgUrl   || settings.menuBgUrl || MENU_BG;
 
         // Try to upload product image — fall back gracefully if it fails
         let pProductImage;
