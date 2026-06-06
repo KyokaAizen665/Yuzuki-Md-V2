@@ -25,6 +25,7 @@ import {
 } from "./settings.js";
 import { clearSession, stopBot, startBot, state as botState } from "./bot.js";
 import { pushToGitHub, pullFromGitHub } from "./utils/github.js";
+import { card, toast, toggle, listCard, progress } from "./utils/ui.js";
 import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./menu.js";
 // Free AI — no API keys required (Pollinations.AI + StreamElements + Groq)
 import QRCode from "qrcode";
@@ -472,13 +473,29 @@ export async function handleCommand({ sock, msg, command, args }) {
       break;
     }
 
-    case "ping":
-      await replyChannel("Pong!");
+    case "ping": {
+      const t0 = Date.now();
+      await replyChannel(card("🏓", "Pong", [
+        ["Response", `${Date.now() - t0} ms`],
+        ["Status",   "Online ✅"],
+      ], "Yuzuki MD v2"));
       break;
+    }
 
-    case "alive":
-      await replyChannel(`*${settings.botName ?? "Bot"} is alive!*\nStatus: Online\nPrefix: ${prefix}`);
+    case "alive": {
+      const ms0 = Date.now() - startTime;
+      const s0 = Math.floor(ms0 / 1000);
+      const m0 = Math.floor(s0 / 60);
+      const h0 = Math.floor(m0 / 60);
+      const d0 = Math.floor(h0 / 24);
+      await replyChannel(card("🐋", `${settings.botName ?? "Yuzuki MD"}`, [
+        ["Status",   "Online ✅"],
+        ["Prefix",   `\`${prefix}\``],
+        ["Mode",     (settings.mode ?? "public").toUpperCase()],
+        ["Uptime",   `${d0}d ${h0 % 24}h ${m0 % 60}m ${s0 % 60}s`],
+      ], "Yuzuki MD v2 • Powered by focashi"));
       break;
+    }
 
     case "uptime": {
       const ms = Date.now() - startTime;
@@ -486,7 +503,10 @@ export async function handleCommand({ sock, msg, command, args }) {
       const m = Math.floor(s / 60);
       const h = Math.floor(m / 60);
       const d = Math.floor(h / 24);
-      await replyChannel(`Uptime: ${d}d ${h % 24}h ${m % 60}m ${s % 60}s`);
+      await replyChannel(card("⏱", "Uptime", [
+        ["Running",  `${d}d ${h % 24}h ${m % 60}m ${s % 60}s`],
+        ["Started",  new Date(startTime).toLocaleTimeString()],
+      ], "Yuzuki MD v2"));
       break;
     }
 
@@ -628,188 +648,192 @@ break;
 }
 
     case "speed": {
-      const start = Date.now();
-      await replyChannel(`Latency: ${Date.now() - start}ms`);
+      const t1 = Date.now();
+      await replyChannel(card("📡", "Speed Test", [
+        ["Latency", `${Date.now() - t1} ms`],
+        ["Status",  "Online ✅"],
+      ], "Yuzuki MD v2"));
       break;
     }
 
     case "vpsinfo": {
       const cpus = os.cpus();
-      const mem = os.totalmem();
+      const mem  = os.totalmem();
       const free = os.freemem();
-      await replyChannel(
-        `VPS Info\n` +
-        `CPU: ${cpus[0]?.model ?? "N/A"} (${cpus.length} cores)\n` +
-        `RAM: ${Math.round(mem/1024/1024)}MB total / ${Math.round(free/1024/1024)}MB free\n` +
-        `OS: ${os.platform()} ${os.arch()}`
-      );
+      const used = mem - free;
+      await replyChannel(card("🖥", "System Info", [
+        ["CPU",      `${cpus[0]?.model?.split(" ").slice(-2).join(" ") ?? "N/A"} ×${cpus.length}`],
+        ["RAM",      `${Math.round(used/1024/1024)}MB / ${Math.round(mem/1024/1024)}MB`],
+        ["Free RAM", `${Math.round(free/1024/1024)}MB`],
+        null,
+        ["OS",       `${os.platform()} ${os.arch()}`],
+        ["Node",     process.version],
+      ], "Yuzuki MD v2"));
       break;
     }
 
     case "totalcmds": {
       const cases = getCases();
-      await replyChannel(`Total custom cases: ${cases.length}`);
+      await replyChannel(card("📦", "Commands", [
+        ["Custom",  `${cases.length} registered`],
+      ], "Yuzuki MD v2"));
       break;
     }
 
     case "setchannelid": {
       const cid = args.join(" ").trim();
-      if (!cid) { await reply(`Usage: ${prefix}setchannelid <channel_jid>\nUse clear to remove.`); break; }
-      if (cid === "clear") { setSetting("channelId", ""); await reply("Channel ID cleared."); break; }
+      if (!cid) { await reply(toast("info", "Usage", `${prefix}setchannelid <jid>  •  or  clear`)); break; }
+      if (cid === "clear") { setSetting("channelId", ""); await reply(toast("ok", "Channel ID Cleared")); break; }
       setSetting("channelId", cid);
-      await reply(`Channel ID set to: ${cid}`);
+      await reply(toast("ok", "Channel ID Set", cid));
       break;
     }
 
     case "setchannelname": {
       const cname = args.join(" ").trim();
-      if (!cname) { await reply(`Usage: ${prefix}setchannelname <name>\nUse clear to remove.`); break; }
-      if (cname === "clear") { setSetting("channelName", ""); await reply("Channel name cleared."); break; }
+      if (!cname) { await reply(toast("info", "Usage", `${prefix}setchannelname <name>  •  or  clear`)); break; }
+      if (cname === "clear") { setSetting("channelName", ""); await reply(toast("ok", "Channel Name Cleared")); break; }
       setSetting("channelName", cname);
-      await reply(`Channel name set to: ${cname}`);
+      await reply(toast("ok", "Channel Name Set", cname));
       break;
     }
 
     case "setprefix": {
       const np = args[0];
-      if (!np) { await reply(`Usage: ${prefix}setprefix <new_prefix>`); break; }
+      if (!np) { await reply(toast("info", "Usage", `${prefix}setprefix <new_prefix>`)); break; }
       setSetting("prefix", np);
-      await reply(`Prefix updated to *${np}*`);
+      await reply(toast("ok", "Prefix Updated", `\`${np}\``));
       break;
     }
 
     case "setowner": {
       const num = args[0]?.replace(/[^0-9]/g, "");
-      if (!num) { await reply(`Usage: ${prefix}setowner <phone_number>`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}setowner <phone_number>`)); break; }
       setSetting("ownerNumber", num);
-      await reply(`Owner number set to *${num}*`);
+      await reply(toast("ok", "Owner Number Set", num));
       break;
     }
 
     case "addowner": {
       const num = args[0]?.replace(/[^0-9]/g, "");
       const name = args.slice(1).join(" ") || null;
-      if (!num) { await reply(`Usage: ${prefix}addowner <number> [name]`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}addowner <number> [name]`)); break; }
       const ok = addOwner(num, name);
-      await reply(ok ? `Owner *${num}* added.` : `Owner *${num}* already exists.`);
+      await reply(ok ? toast("ok", "Owner Added", `${num}${name ? `  (${name})` : ""}`) : toast("warn", "Already Exists", num));
       break;
     }
 
     case "delowner": {
       const num = args[0]?.replace(/[^0-9]/g, "");
-      if (!num) { await reply(`Usage: ${prefix}delowner <number>`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}delowner <number>`)); break; }
       const ok = removeOwner(num);
-      await reply(ok ? `Owner *${num}* removed.` : `Owner *${num}* not found.`);
+      await reply(ok ? toast("ok", "Owner Removed", num) : toast("err", "Not Found", num));
       break;
     }
 
     case "listowners": {
       const owners = getOwners();
-      if (!owners.length) { await reply("No owners registered."); break; }
-      await reply(`Owners:\n${owners.map((o, i) => `${i + 1}. ${o.number}${o.name ? ` (${o.name})` : ""}`).join("\n")}`);
+      if (!owners.length) { await reply(toast("info", "No owners registered")); break; }
+      await reply(listCard("👑", "Owners", owners.map(o => `${o.number}${o.name ? `  _(${o.name})_` : ""}`)));
       break;
     }
 
     case "setbotname": {
       const name = args.join(" ");
-      if (!name) { await reply(`Usage: ${prefix}setbotname <name>`); break; }
+      if (!name) { await reply(toast("info", "Usage", `${prefix}setbotname <name>`)); break; }
       setSetting("botName", name);
-      await reply(`Bot name set to *${name}*`);
+      await reply(toast("ok", "Bot Name Updated", name));
       break;
     }
 
     case "public":
       setSetting("mode", "public");
-      await reply("Bot mode set to *public*");
+      await reply(toggle("🌍", "Bot Mode", true, "Responds to everyone"));
       break;
 
     case "self":
       setSetting("mode", "self");
-      await reply("Bot mode set to *self*");
+      await reply(toggle("🔒", "Bot Mode  •  Self", true, "Responds to owner only"));
       break;
 
     case "antidelete": {
       const cur = loadSettings().antidelete ?? false;
       setSetting("antidelete", !cur);
-      await reply(`Anti-delete is now *${!cur ? "ON" : "OFF"}*`);
+      await reply(toggle("🗑", "Anti-Delete", !cur));
       break;
     }
 
     case "gconly": {
-        const sub = (args[0] ?? "").toLowerCase();
-        const cur = loadSettings().gconly ?? false;
-        if (sub === "on") {
-          setSetting("gconly", true);
-          await reply("Group-chat only mode is now *ON* — bot will only respond in groups.");
-        } else if (sub === "off") {
-          setSetting("gconly", false);
-          await reply("Group-chat only mode is now *OFF* — bot will respond in DMs and groups.");
-        } else {
-          await reply(
-            `Group-chat only is currently *${cur ? "ON" : "OFF"}*\n` +
-            `Use ${prefix}gconly on / ${prefix}gconly off to change it.`
-          );
-        }
-        break;
+      const sub = (args[0] ?? "").toLowerCase();
+      const cur = loadSettings().gconly ?? false;
+      if (sub === "on") {
+        setSetting("gconly", true);
+        await reply(toggle("👥", "Group-Only Mode", true, "Bot ignores DMs"));
+      } else if (sub === "off") {
+        setSetting("gconly", false);
+        await reply(toggle("👥", "Group-Only Mode", false, "Bot responds everywhere"));
+      } else {
+        await reply(card("👥", "Group-Only Mode", [
+          ["Current",  cur ? "✅ ON" : "🔴 OFF"],
+          ["Turn on",  `\`${prefix}gconly on\``],
+          ["Turn off", `\`${prefix}gconly off\``],
+        ]));
       }
+      break;
+    }
 
     case "autoblock": {
       const cur = loadSettings().autoblock ?? false;
       setSetting("autoblock", !cur);
-      await reply(`Auto-block is now *${!cur ? "ON" : "OFF"}*`);
+      await reply(toggle("🚫", "Auto-Block", !cur));
       break;
     }
 
     case "restart":
-      await reply("Restarting bot...");
+      await reply(progress("♻️", "Restarting Bot", "Back online in a few seconds..."));
       await stopBot();
       setTimeout(() => startBot().catch(console.error), 1500);
       break;
 
     case "clearsession":
-      await reply("Clearing session and reconnecting...");
+      await reply(progress("🔑", "Clearing Session", "Will reconnect and show a new pairing code..."));
       await clearSession();
       break;
 
     case "push": {
       const commitMsg = args.join(" ") || "Update from Yuzuki MD";
-      await reply(`🐋 *Pushing to GitHub...*\n_Commit: "${commitMsg}"_`);
+      await reply(progress("🐋", "Pushing to GitHub", `"${commitMsg}"`));
       try {
         const result = await pushToGitHub(commitMsg);
-        await reply(
-          `✅ *Push successful!*\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `📁 Files: ${result.filesCount}\n` +
-          `🔗 Commit: \`${result.commitSha.slice(0, 7)}\`\n` +
-          `🌐 ${result.url}`
-        );
+        await reply(card("🐙", "Push Successful", [
+          ["Files",   `${result.filesCount} uploaded`],
+          ["Commit",  `\`${result.commitSha.slice(0, 7)}\``],
+          ["Branch",  "main"],
+          null,
+          ["Link",    result.url],
+        ], "github.com/KyokaAizen665/Yuzuki-Md-V2"));
       } catch (err) {
-        await reply(`❌ *Push failed:* ${err.message}`);
+        await reply(toast("err", "Push Failed", err.message));
       }
       break;
     }
 
     case "update": {
-      await reply(
-        `🔄 *Updating bot from GitHub...*\n` +
-        `_Fetching latest commit on main branch..._`
-      );
+      await reply(progress("🔄", "Fetching Latest Update", "Downloading from main branch..."));
       try {
         const result = await pullFromGitHub();
-        await reply(
-          `✅ *Update downloaded!*\n` +
-          `━━━━━━━━━━━━━━━━\n` +
-          `📁 Files updated: ${result.filesCount}\n` +
-          `🔗 Commit: \`${result.commitSha.slice(0, 7)}\`\n` +
-          `🌐 ${result.url}\n\n` +
-          `♻️ _Restarting bot to apply changes..._`
-        );
-        // Give WhatsApp time to deliver the message before restart
+        await reply(card("✅", "Update Complete", [
+          ["Files",   `${result.filesCount} updated`],
+          ["Commit",  `\`${result.commitSha.slice(0, 7)}\``],
+          ["Branch",  "main"],
+          null,
+          ["Link",    result.url],
+        ], "Restarting to apply changes..."));
         await new Promise(r => setTimeout(r, 2000));
         await stopBot();
         setTimeout(() => startBot().catch(console.error), 1500);
       } catch (err) {
-        await reply(`❌ *Update failed:* ${err.message}`);
+        await reply(toast("err", "Update Failed", err.message));
       }
       break;
     }
@@ -829,61 +853,67 @@ break;
       const num = args[0]?.replace(/[^0-9]/g, "");
       const name = args[1] || null;
       const quota = parseInt(args[2] ?? "10", 10);
-      if (!num) { await reply(`Usage: ${prefix}addreseller <number> [name] [quota]`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}addreseller <number> [name] [quota]`)); break; }
       const ok = addReseller(num, name, quota);
-      await reply(ok ? `Reseller *${num}* added (quota: ${quota}).` : `Reseller *${num}* already exists.`);
+      await reply(ok
+        ? toast("ok", "Reseller Added", `${num}${name ? `  (${name})` : ""}  •  quota: ${quota}`)
+        : toast("warn", "Already Exists", num));
       break;
     }
 
     case "delreseller": {
       const num = args[0]?.replace(/[^0-9]/g, "");
-      if (!num) { await reply(`Usage: ${prefix}delreseller <number>`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}delreseller <number>`)); break; }
       const ok = removeReseller(num);
-      await reply(ok ? `Reseller *${num}* removed.` : `Reseller *${num}* not found.`);
+      await reply(ok ? toast("ok", "Reseller Removed", num) : toast("err", "Not Found", num));
       break;
     }
 
     case "listreseller": {
       const list = getResellers();
-      if (!list.length) { await reply("No resellers."); break; }
-      await reply(`Resellers:\n${list.map((r, i) => `${i + 1}. ${r.number}${r.name ? ` (${r.name})` : ""} — quota: ${r.quota} (used: ${r.usedQuota ?? 0})`).join("\n")}`);
+      if (!list.length) { await reply(toast("info", "No resellers registered")); break; }
+      await reply(listCard("🤝", "Resellers", list.map(r =>
+        `${r.number}${r.name ? `  _(${r.name})_` : ""}  •  ${r.usedQuota ?? 0}/${r.quota}`
+      )));
       break;
     }
 
-    // FIX #3: resetreseller now has an actual handler
     case "resetreseller": {
       const num = args[0]?.replace(/[^0-9]/g, "");
       const newQuota = args[1] ? parseInt(args[1], 10) : null;
-      if (!num) { await reply(`Usage: ${prefix}resetreseller <number> [new_quota]`); break; }
+      if (!num) { await reply(toast("info", "Usage", `${prefix}resetreseller <number> [new_quota]`)); break; }
       const ok = resetReseller(num, newQuota);
       await reply(ok
-        ? `Reseller *${num}* quota reset to 0${newQuota !== null ? ` (new max: ${newQuota})` : ""}.`
-        : `Reseller *${num}* not found.`
-      );
+        ? toast("ok", "Reseller Reset", `${num}${newQuota !== null ? `  •  new quota: ${newQuota}` : ""}`)
+        : toast("err", "Not Found", num));
       break;
     }
 
     case "addkey": {
       const key = args[0];
       const desc = args.slice(1).join(" ") || null;
-      if (!key) { await reply(`Usage: ${prefix}addkey <key> [description]`); break; }
+      if (!key) { await reply(toast("info", "Usage", `${prefix}addkey <key> [description]`)); break; }
       const ok = addKey(key, desc);
-      await reply(ok ? `Key *${key}* added.` : `Key *${key}* already exists.`);
+      await reply(ok
+        ? toast("ok", "Key Added", `\`${key}\`${desc ? `  •  ${desc}` : ""}`)
+        : toast("warn", "Already Exists", `\`${key}\``));
       break;
     }
 
     case "delkey": {
       const key = args[0];
-      if (!key) { await reply(`Usage: ${prefix}delkey <key>`); break; }
+      if (!key) { await reply(toast("info", "Usage", `${prefix}delkey <key>`)); break; }
       const ok = removeKey(key);
-      await reply(ok ? `Key *${key}* removed.` : `Key *${key}* not found.`);
+      await reply(ok ? toast("ok", "Key Removed", `\`${key}\``) : toast("err", "Not Found", `\`${key}\``));
       break;
     }
 
     case "listkey": {
       const keys = getKeys();
-      if (!keys.length) { await reply("No keys."); break; }
-      await reply(`Keys:\n${keys.map((k, i) => `${i + 1}. ${k.key}${k.description ? ` — ${k.description}` : ""}`).join("\n")}`);
+      if (!keys.length) { await reply(toast("info", "No keys registered")); break; }
+      await reply(listCard("🔑", "Keys", keys.map(k =>
+        `\`${k.key}\`${k.description ? `  •  ${k.description}` : ""}`
+      )));
       break;
     }
 
