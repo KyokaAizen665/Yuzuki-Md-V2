@@ -117,6 +117,24 @@ export async function pullFromGitHub() {
 }
 
 /**
+ * Fetch the last N commits from the GitHub repo.
+ * @param {number} [count=5]
+ * @returns {Array<{sha,message,author,date}>}
+ */
+export async function getChangelog(count = 5) {
+  const gh = ghClient();
+  const { data } = await gh.get(
+    `/repos/${OWNER}/${REPO}/commits?sha=${BRANCH}&per_page=${count}`
+  );
+  return data.map(c => ({
+    sha:     c.sha.slice(0, 7),
+    message: c.commit.message.split("\n")[0],
+    author:  c.commit.author.name,
+    date:    new Date(c.commit.author.date).toLocaleDateString(),
+  }));
+}
+
+/**
  * Push all workspace source files to GitHub via the Git Data API.
  * @param {string} commitMessage
  * @returns {{ commitSha: string, url: string, filesCount: number }}

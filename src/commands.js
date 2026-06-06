@@ -24,7 +24,7 @@ import {
   editCase,
 } from "./settings.js";
 import { clearSession, stopBot, startBot, state as botState } from "./bot.js";
-import { pushToGitHub, pullFromGitHub } from "./utils/github.js";
+import { pushToGitHub, pullFromGitHub, getChangelog } from "./utils/github.js";
 import { card, toast, toggle, listCard, progress } from "./utils/ui.js";
 import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./menu.js";
 // Free AI — no API keys required (Pollinations.AI + StreamElements + Groq)
@@ -119,7 +119,7 @@ const OWNER_COMMANDS = new Set([
   "addreseller","delreseller","resetreseller",
   "addkey","delkey",
   "addcase","delcase","editcase",
-  "push","update",
+  "push","update","changelog",
 ]);
 
 export async function handleCommand({ sock, msg, command, args }) {
@@ -834,6 +834,27 @@ break;
         setTimeout(() => startBot().catch(console.error), 1500);
       } catch (err) {
         await reply(toast("err", "Update Failed", err.message));
+      }
+      break;
+    }
+
+    case "changelog": {
+      const count = Math.min(parseInt(args[0] ?? "5", 10) || 5, 10);
+      await reply(progress("📋", "Fetching Changelog", `Last ${count} commits from main...`));
+      try {
+        const commits = await getChangelog(count);
+        const rows = commits.map((c, i) =>
+          `  ${i + 1}.  \`${c.sha}\`  ${c.date}\n      _${c.message}_`
+        );
+        await reply(
+          `📋  *CHANGELOG*  •  _last ${commits.length} commits_\n` +
+          `${"─".repeat(26)}\n` +
+          rows.join("\n\n") +
+          `\n${"─".repeat(26)}\n` +
+          `_github.com/KyokaAizen665/Yuzuki-Md-V2_`
+        );
+      } catch (err) {
+        await reply(toast("err", "Changelog Failed", err.message));
       }
       break;
     }
