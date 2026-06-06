@@ -272,8 +272,12 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       let menuThumb;
       try {
-        const tr = await fetch(imageUrl);
-        menuThumb = Buffer.from(await tr.arrayBuffer());
+        if (imageUrl.startsWith("http")) {
+          const tr = await fetch(imageUrl);
+          menuThumb = Buffer.from(await tr.arrayBuffer());
+        } else {
+          menuThumb = fs.readFileSync(imageUrl);
+        }
       } catch { menuThumb = undefined; }
 
       // ── Build product card (embedded as quoted context inside the menu) ──
