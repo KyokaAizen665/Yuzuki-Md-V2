@@ -352,6 +352,24 @@ export async function handleCommand({ sock, msg, command, args }) {
           await reply(menuCaption);
         }
       }
+
+      // ── Product card sent alongside the main menu ──────────────────
+      try {
+        await sock.sendMessage(jid, {
+          productMessage: {
+            product: {
+              productId: "1337",
+              title: botName,
+              description: "I'm aizen",
+              currencyCode: "USD",
+              priceAmount1000: 1000000000,
+              retailerId: "yuzuki-v2",
+            },
+            businessOwnerJid: sock.user.id,
+          },
+        }, { quoted: msg });
+      } catch { /* silently skip if product message is unsupported */ }
+
       break;
     }
 
@@ -2484,6 +2502,32 @@ export async function handleCommand({ sock, msg, command, args }) {
           `💾 RAM: *${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)} MB*\n` +
           `📂 Mode: *${settings.mode || "public"}*`
         );
+        break;
+      }
+
+      // ── Standalone product message command ────────────────────────
+      case "product":
+      case "prodmsg":
+      case "fakeshop": {
+        const pArgs = body.slice(prefix.length + command.length).trim().split("|").map(s => s.trim());
+        const pTitle    = pArgs[0] || settings.botName || "Yuzuki MD";
+        const pDesc     = pArgs[1] || "I'm aizen";
+        const pPrice    = pArgs[2] ? Math.round(parseFloat(pArgs[2]) * 1_000_000) : 1_000_000_000;
+        const pRetailer = pArgs[3] || "yuzuki-v2";
+        const pCurrency = pArgs[4] || "USD";
+        await sock.sendMessage(jid, {
+          productMessage: {
+            product: {
+              productId: "1337",
+              title: pTitle,
+              description: pDesc,
+              currencyCode: pCurrency,
+              priceAmount1000: pPrice,
+              retailerId: pRetailer,
+            },
+            businessOwnerJid: sock.user.id,
+          },
+        }, { quoted: msg });
         break;
       }
 
