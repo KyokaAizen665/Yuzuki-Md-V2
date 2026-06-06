@@ -55,7 +55,7 @@ export const CATEGORIES = {
       "uptime", "owner", "speed",
       "vpsinfo", "help", "totalcmds",
       "runtime", "donate", "infobot",
-      "mylimit",
+      "mylimit", "product",
     ],
   },
   group: {
