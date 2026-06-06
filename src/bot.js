@@ -10,7 +10,6 @@ import path from "path";
 import readline from "readline";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import pino from "pino";
 import chalk from "chalk";
 import { loadSettings, setSetting } from "./settings.js";
 import { handleCommand } from "./commands.js";
@@ -19,9 +18,18 @@ import { participantsUpdate } from "./lib/group.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = path.resolve(__dirname, "../bot_session");
 
-export const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
+// Graceful pino — falls back to a no-op compatible logger if not installed
+const _noop = () => {};
+const _makeLogger = (level = "info") => ({
+  level, info: _noop, warn: _noop, error: _noop,
+  debug: _noop, trace: _noop, fatal: _noop,
+  child: () => _makeLogger(level),
+});
+let _pino;
+try { _pino = (await import("pino")).default; } catch { _pino = (o) => _makeLogger(o?.level); }
 
-const silentLogger = pino({ level: "silent" });
+export const logger = _pino({ level: process.env.LOG_LEVEL ?? "info" });
+const silentLogger = _pino({ level: "silent" });
 
 // ── Styled logger ─────────────────────────────────────────────────────────────
 const ocean  = chalk.hex("#0096FF");
