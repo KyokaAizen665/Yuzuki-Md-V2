@@ -4,6 +4,7 @@
 // ╚══════════════════════════════════════════════════════════╝
 
 import { fileURLToPath } from "url";
+// Local background image — lives in src/assets/ alongside future bot images
 export const MENU_BG = fileURLToPath(new URL("./assets/menu_bg.jpg", import.meta.url));
 
 export const CATEGORIES = {
@@ -56,7 +57,7 @@ export const CATEGORIES = {
       "uptime", "owner", "speed",
       "vpsinfo", "help", "totalcmds",
       "runtime", "donate", "infobot",
-      "mylimit", "product",
+      "mylimit",
     ],
   },
   group: {
@@ -79,8 +80,7 @@ export const CATEGORIES = {
       "self", "onlygc", "onlypc",
       "antidelete", "broadcast", "restart",
       "clearsession", "block", "unblock",
-      "setlimit", "setproductimg",
-      "setproducttitle", "setproductdesc",
+      "setlimit",
     ],
   },
   protect: {
@@ -159,36 +159,31 @@ export function buildMain(botName, prefix, runtime = {}) {
   } = runtime;
 
   const catLines = Object.entries(CATEGORIES)
-    .map(([key, cat]) => `│  ${cat.icon}  *${prefix}menu ${key}*  —  ${cat.commands.length} cmds`)
+    .map(([key, cat]) => `│  ${cat.icon}  *${prefix} ${key}*`)
     .join("\n");
 
   return (
-`✨━━━〔 🤖 *${botName}* 〕━━━✨
+`✨━〔 🤖 *${botName}* 〕━✨
 
-╭─〔 👤 *𝐔𝐬𝐞𝐫 𝐈𝐧𝐟𝐨* 〕─╮
+╭─〔 👤 *𝐔𝐬𝐞𝐫 𝐈𝐧𝐟𝐨* 〕
 │ 𝗡𝗮𝗺𝗲 : *${pushname}*
 │ 𝗥𝗮𝗻𝗸 : *${userRank}*
 ╰────────────────╯
 
-╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕─╮
+╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕
 │ 𝗣𝗿𝗲𝗳𝗶𝘅    : *${prefix}*
 │ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲  : *${uptimeStr}*
 │ 👥 𝗨𝘀𝗲𝗿𝘀   : *${totalUsers}*
 │ ⚒️ 𝗙𝗲𝗮𝘁𝘂𝗿𝗲𝘀 : *${totalCmds} cmds*
 ╰─────────────────╯
 
-✨━━━〔 📂 *𝐌𝐞𝐧𝐮 𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━━✨
-╭────────────────╮
+✨━━〔 📂 *𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━✨
+╭───────────────╮
 ${catLines}
-╰────────────────╯
+╰───────────────╯
 
-╭─〔 📱 *𝐒𝐨𝐜𝐢𝐚𝐥 𝐌𝐞𝐝𝐢𝐚* 〕─╮
-│ 👤 𝗪𝗔  : wa.me/${ownerNumber}
-│ 📢 𝗖𝗵  : whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326
-╰──────────────────╯
-
-╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕─╮
-│ Type *${prefix}menu <category>* to open it
+╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕
+│ Type *${prefix}<category>* to open it
 ╰──────────────╯`
   );
 }
@@ -203,16 +198,16 @@ export function buildSub(botName, prefix, key) {
     .join("\n");
 
   return (
-`✨━━━〔 ${cat.icon} *${cat.title}* 〕━━━✨
+`✨━━〔 ${cat.icon} *${cat.title}* 〕━━✨
 
-╭─〔 🔖 *𝐀𝐜𝐜𝐞𝐬𝐬 𝐊𝐞𝐲* 〕─╮
+╭─〔 🔖 *𝐀𝐜𝐜𝐞𝐬𝐬 𝐊𝐞𝐲* 〕
 │ Ⓕ = ꜰʀᴇᴇ  │  Ⓛ = ʟɪᴍɪᴛᴇᴅ
 │ Ⓐ = ᴀᴅᴍɪɴ  │  Ⓞ = ᴏᴡɴᴇʀ
-╰────────────────────╯
+╰───────────────────╯
 
 ${cmdLines}
 
-╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕─╮
+╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕
 │ Angle brackets < > are
 │ not typed literally.
 │ Example: *${prefix}ytmp3 url*
@@ -236,7 +231,7 @@ export function buildListPayload(botName, prefix) {
 
   return {
     text: buildMain(botName, prefix),
-    footer: `Made with ♥ by Aizen | ${botName}`,
+    footer: `Powered by YuzukiMD`,
     title: `${botName} Menu`,
     buttonText: "📂 Browse Categories",
     sections,
