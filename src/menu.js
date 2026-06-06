@@ -78,7 +78,8 @@ export const CATEGORIES = {
       "self", "onlygc", "onlypc",
       "antidelete", "broadcast", "restart",
       "clearsession", "block", "unblock",
-      "setlimit",
+      "setlimit", "setproductimg",
+      "setproducttitle", "setproductdesc",
     ],
   },
   protect: {
