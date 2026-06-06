@@ -1,14 +1,8 @@
 import axios from "axios";
 
-// ── Invidious instances for YouTube search (no API key needed) ─────────────
-const INVIDIOUS = [
-  "https://iv.ggtyler.dev",
-  "https://invidious.nerdvpn.de",
-  "https://invidious.perennialte.ch",
-  "https://inv.nadeko.net",
-  "https://invidious.fdn.fr",
-  "https://invidious.privacyredirect.com",
-];
+// ── YouTube Internal API (no API key needed, replaces broken Invidious) ────
+const YT_SEARCH_URL = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false";
+const YT_CLIENT = { clientName: "WEB", clientVersion: "2.20231219.01.00" };
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -32,29 +26,49 @@ function isUrl(text) {
   return /^https?:\/\//i.test(text) || /youtu/.test(text);
 }
 
-// ── YouTube search via Invidious ──────────────────────────────────────────
+// ── YouTube search via YouTube Internal API (no key, no Invidious) ─────────
 export async function ytSearch(query, limit = 10) {
-  for (const base of INVIDIOUS) {
-    try {
-      const r = await fetch(
-        `${base}/api/v1/search?q=${encodeURIComponent(query)}&type=video&fields=videoId,title,author,lengthSeconds,viewCount`,
-        { signal: AbortSignal.timeout(8000) }
-      );
-      if (!r.ok) continue;
-      const data = await r.json();
-      if (!Array.isArray(data) || !data.length) continue;
-      return data.slice(0, limit).map((v) => ({
-        id: v.videoId,
-        title: v.title,
-        author: v.author,
-        duration: v.lengthSeconds,
-        views: v.viewCount,
-        thumbnail: buildThumbnail(v.videoId),
-        url: `https://youtu.be/${v.videoId}`,
-      }));
-    } catch { continue; }
+  const res = await axios.post(
+    YT_SEARCH_URL,
+    { context: { client: YT_CLIENT }, query },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "X-YouTube-Client-Name": "1",
+        "X-YouTube-Client-Version": YT_CLIENT.clientVersion,
+      },
+      timeout: 12000,
+    }
+  );
+
+  const sections =
+    res.data?.contents?.twoColumnSearchResultsRenderer
+      ?.primaryContents?.sectionListRenderer?.contents || [];
+
+  const videos = [];
+  for (const section of sections) {
+    const items = section?.itemSectionRenderer?.contents || [];
+    for (const item of items) {
+      const vr = item?.videoRenderer;
+      if (vr?.videoId) {
+        videos.push({
+          id: vr.videoId,
+          title: vr.title?.runs?.[0]?.text || "Unknown",
+          author: vr.ownerText?.runs?.[0]?.text || "Unknown",
+          duration: vr.lengthText?.simpleText || "0:00",
+          views: vr.viewCountText?.simpleText || "0",
+          thumbnail: buildThumbnail(vr.videoId),
+          url: `https://youtu.be/${vr.videoId}`,
+        });
+        if (videos.length >= limit) break;
+      }
+    }
+    if (videos.length >= limit) break;
   }
-  throw new Error("YouTube search failed. All Invidious instances are down.");
+
+  if (!videos.length) throw new Error("YouTube search returned no results.");
+  return videos;
 }
 
 // ── Convert (hub.ytconvert.org) ───────────────────────────────────────────
