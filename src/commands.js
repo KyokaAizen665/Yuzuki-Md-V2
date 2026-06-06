@@ -276,7 +276,7 @@ export async function handleCommand({ sock, msg, command, args }) {
         menuThumb = Buffer.from(await tr.arrayBuffer());
       } catch { menuThumb = undefined; }
 
-      // ── Build product card ──────────────────────────────────────────────
+      // ── Build product card (embedded as quoted context inside the menu) ──
       const cardTitle    = settings.productTitle    || botName;
       const cardDesc     = settings.productDesc     || "I'm aizen";
       const cardCurrency = settings.productCurrency || "USD";
@@ -291,10 +291,15 @@ export async function handleCommand({ sock, msg, command, args }) {
         productImage = pm.imageMessage;
       } catch { productImage = undefined; }
 
-      // ── Send product card first — status@broadcast + 0@s.whatsapp.net
-      //    makes WhatsApp render "WhatsApp Business • Status" blue bar ────
-      try {
-        await sock.sendMessage(jid, {
+      // Fake quoted object — participant 0@s.whatsapp.net + remoteJid status@broadcast
+      // makes WhatsApp render "WhatsApp Business • Status" blue bar on the menu bubble
+      const productQuoted = {
+        key: {
+          fromMe: false,
+          participant: "0@s.whatsapp.net",
+          remoteJid: "status@broadcast",
+        },
+        message: {
           productMessage: {
             product: {
               productId: "1337",
@@ -306,19 +311,17 @@ export async function handleCommand({ sock, msg, command, args }) {
               ...(productImage ? { productImage } : {}),
             },
             businessOwnerJid: sock.user.id,
-            contextInfo: {
-              stanzaId: Math.random().toString(36).slice(2, 10).toUpperCase(),
-              fromMe: false,
-              participant: "0@s.whatsapp.net",
-              remoteJid: "status@broadcast",
-              quotedMessage: { conversation: `Hai👋... ${botName}` },
-            },
           },
-        });
-      } catch { /* skip silently if product message unsupported */ }
+        },
+      };
 
-      // ── Build context for the menu message ─────────────────────────────
+      // ── Context for the menu message (single bubble) ────────────────────
       const menuCtx = {
+        stanzaId: Math.random().toString(36).slice(2, 10).toUpperCase(),
+        fromMe: false,
+        participant: "0@s.whatsapp.net",
+        remoteJid: "status@broadcast",
+        quotedMessage: productQuoted.message,
         forwardingScore: 2025,
         isForwarded: true,
         ...(settings.channelId && settings.channelName ? {
@@ -381,7 +384,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               },
             },
           },
-        }, { quoted: msg }, {});
+        }, { quoted: productQuoted }, {});
         await sock.relayMessage(interactiveMsg.key.remoteJid, interactiveMsg.message, { messageId: interactiveMsg.key.id });
       } catch {
         try {
