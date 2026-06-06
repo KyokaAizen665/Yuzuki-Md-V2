@@ -355,6 +355,16 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       // ── Product card sent alongside the main menu ──────────────────
       try {
+        // Try to attach the menu image as the product thumbnail
+        let productImage;
+        try {
+          const productMedia = await prepareWAMessageMedia(
+            menuThumb ? { image: menuThumb } : { image: { url: imageUrl } },
+            { upload: sock.waUploadToServer }
+          );
+          productImage = productMedia.imageMessage;
+        } catch { productImage = undefined; }
+
         await sock.sendMessage(jid, {
           productMessage: {
             product: {
@@ -364,6 +374,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               currencyCode: "USD",
               priceAmount1000: 1000000000,
               retailerId: "yuzuki-v2",
+              ...(productImage ? { productImage } : {}),
             },
             businessOwnerJid: sock.user.id,
           },
@@ -2515,6 +2526,18 @@ export async function handleCommand({ sock, msg, command, args }) {
         const pPrice    = pArgs[2] ? Math.round(parseFloat(pArgs[2]) * 1_000_000) : 1_000_000_000;
         const pRetailer = pArgs[3] || "yuzuki-v2";
         const pCurrency = pArgs[4] || "USD";
+        const pImgUrl   = pArgs[5] || settings.menuBgUrl || MENU_BG;
+
+        // Try to upload product image — fall back gracefully if it fails
+        let pProductImage;
+        try {
+          const pMedia = await prepareWAMessageMedia(
+            { image: { url: pImgUrl } },
+            { upload: sock.waUploadToServer }
+          );
+          pProductImage = pMedia.imageMessage;
+        } catch { pProductImage = undefined; }
+
         await sock.sendMessage(jid, {
           productMessage: {
             product: {
@@ -2524,6 +2547,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               currencyCode: pCurrency,
               priceAmount1000: pPrice,
               retailerId: pRetailer,
+              ...(pProductImage ? { productImage: pProductImage } : {}),
             },
             businessOwnerJid: sock.user.id,
           },
