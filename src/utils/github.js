@@ -55,6 +55,67 @@ function collectFiles(dir, base = "") {
   return results;
 }
 
+// Files/dirs that should never be overwritten by a pull
+const PULL_EXCLUDE = new Set([
+  ".git", "node_modules", "bot_session", ".npm", ".cache",
+  ".local", ".agents", ".replit", "attached_assets",
+  "zipFile.zip", "push.sh",
+]);
+
+/**
+ * Pull all files from the latest GitHub commit and overwrite local copies.
+ * Preserves node_modules, bot_session, and all Replit-internal dirs.
+ * @returns {{ commitSha: string, url: string, filesCount: number }}
+ */
+export async function pullFromGitHub() {
+  const gh = ghClient();
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // 1 ── Get HEAD commit SHA
+  const { data: refData } = await gh.get(
+    `/repos/${OWNER}/${REPO}/git/refs/heads/${BRANCH}`
+  );
+  const headSha = refData.object.sha;
+
+  // 2 ── Get full recursive tree
+  const { data: treeData } = await gh.get(
+    `/repos/${OWNER}/${REPO}/git/trees/${headSha}?recursive=1`
+  );
+
+  const blobs = treeData.tree.filter(item => item.type === "blob");
+
+  // 3 ── Filter out excluded paths
+  const toDownload = blobs.filter(({ path: p }) => {
+    const topLevel = p.split("/")[0];
+    return !PULL_EXCLUDE.has(topLevel) && !topLevel.startsWith(".git");
+  });
+
+  // 4 ── Download and write each file in batches
+  const BATCH = 5;
+  let written = 0;
+
+  for (let i = 0; i < toDownload.length; i += BATCH) {
+    const batch = toDownload.slice(i, i + BATCH);
+    await Promise.all(batch.map(async ({ path: relPath, sha }) => {
+      const { data: blobData } = await gh.get(
+        `/repos/${OWNER}/${REPO}/git/blobs/${sha}`
+      );
+      const content  = Buffer.from(blobData.content, "base64");
+      const fullPath = path.join(ROOT, relPath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content);
+      written++;
+    }));
+    if (i + BATCH < toDownload.length) await sleep(200);
+  }
+
+  return {
+    commitSha:  headSha,
+    url: `https://github.com/${OWNER}/${REPO}/commit/${headSha}`,
+    filesCount: written,
+  };
+}
+
 /**
  * Push all workspace source files to GitHub via the Git Data API.
  * @param {string} commitMessage

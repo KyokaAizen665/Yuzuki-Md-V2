@@ -24,6 +24,7 @@ import {
   editCase,
 } from "./settings.js";
 import { clearSession, stopBot, startBot, state as botState } from "./bot.js";
+import { pushToGitHub, pullFromGitHub } from "./utils/github.js";
 import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./menu.js";
 // Free AI — no API keys required (Pollinations.AI + StreamElements + Groq)
 import QRCode from "qrcode";
@@ -117,6 +118,7 @@ const OWNER_COMMANDS = new Set([
   "addreseller","delreseller","resetreseller",
   "addkey","delkey",
   "addcase","delcase","editcase",
+  "push","update",
 ]);
 
 export async function handleCommand({ sock, msg, command, args }) {
@@ -768,6 +770,49 @@ break;
       await reply("Clearing session and reconnecting...");
       await clearSession();
       break;
+
+    case "push": {
+      const commitMsg = args.join(" ") || "Update from Yuzuki MD";
+      await reply(`🐋 *Pushing to GitHub...*\n_Commit: "${commitMsg}"_`);
+      try {
+        const result = await pushToGitHub(commitMsg);
+        await reply(
+          `✅ *Push successful!*\n` +
+          `━━━━━━━━━━━━━━━━\n` +
+          `📁 Files: ${result.filesCount}\n` +
+          `🔗 Commit: \`${result.commitSha.slice(0, 7)}\`\n` +
+          `🌐 ${result.url}`
+        );
+      } catch (err) {
+        await reply(`❌ *Push failed:* ${err.message}`);
+      }
+      break;
+    }
+
+    case "update": {
+      await reply(
+        `🔄 *Updating bot from GitHub...*\n` +
+        `_Fetching latest commit on main branch..._`
+      );
+      try {
+        const result = await pullFromGitHub();
+        await reply(
+          `✅ *Update downloaded!*\n` +
+          `━━━━━━━━━━━━━━━━\n` +
+          `📁 Files updated: ${result.filesCount}\n` +
+          `🔗 Commit: \`${result.commitSha.slice(0, 7)}\`\n` +
+          `🌐 ${result.url}\n\n` +
+          `♻️ _Restarting bot to apply changes..._`
+        );
+        // Give WhatsApp time to deliver the message before restart
+        await new Promise(r => setTimeout(r, 2000));
+        await stopBot();
+        setTimeout(() => startBot().catch(console.error), 1500);
+      } catch (err) {
+        await reply(`❌ *Update failed:* ${err.message}`);
+      }
+      break;
+    }
 
     // FIX #2: clearchat now has an actual handler
     case "clearchat": {
