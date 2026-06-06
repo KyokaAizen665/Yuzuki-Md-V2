@@ -1,4 +1,5 @@
-import "dotenv/config";
+// Load .env if available (graceful — panels inject vars directly, no .env needed)
+try { await import("dotenv/config"); } catch {}
 import chalk from "chalk";
 import "./server.js";
 import { startBot, logger } from "./bot.js";
