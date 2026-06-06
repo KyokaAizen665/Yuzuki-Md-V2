@@ -25,7 +25,7 @@ import {
 } from "./settings.js";
 import { clearSession, stopBot, startBot, state as botState } from "./bot.js";
 import { pushToGitHub, pullFromGitHub, getChangelog } from "./utils/github.js";
-import { card, toast, toggle, listCard, progress } from "./utils/ui.js";
+import { card, toast, toggle, listCard, progress, previewCard } from "./utils/ui.js";
 import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./menu.js";
 // Free AI — no API keys required (Pollinations.AI + StreamElements + Groq)
 import QRCode from "qrcode";
@@ -488,12 +488,25 @@ export async function handleCommand({ sock, msg, command, args }) {
       const m0 = Math.floor(s0 / 60);
       const h0 = Math.floor(m0 / 60);
       const d0 = Math.floor(h0 / 24);
-      await replyChannel(card("🐋", `${settings.botName ?? "Yuzuki MD"}`, [
+      const botName0 = settings.botName ?? "Yuzuki MD";
+      const uptime0  = `${d0}d ${h0 % 24}h ${m0 % 60}m ${s0 % 60}s`;
+      const text0 = card("🐋", botName0, [
         ["Status",   "Online ✅"],
         ["Prefix",   `\`${prefix}\``],
         ["Mode",     (settings.mode ?? "public").toUpperCase()],
-        ["Uptime",   `${d0}d ${h0 % 24}h ${m0 % 60}m ${s0 % 60}s`],
-      ], "Yuzuki MD v2 • Powered by focashi"));
+        ["Uptime",   uptime0],
+      ], "Yuzuki MD v2 • Powered by focashi");
+      const payload0 = await previewCard(text0, {
+        title:     botName0,
+        body:      `Online ✅  •  Uptime: ${uptime0}`,
+        thumbUrl:  "https://qu.ax/RYgoy",
+        sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+      });
+      const channelJid0 = settings.channelId ? `${settings.channelId}@newsletter` : null;
+      if (channelJid0) {
+        await sock.sendMessage(channelJid0, payload0);
+      }
+      await sock.sendMessage(jid, payload0, { quoted: msg });
       break;
     }
 

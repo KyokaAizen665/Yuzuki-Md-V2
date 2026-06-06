@@ -77,3 +77,48 @@ export function progress(emoji, label, detail) {
     ? `${emoji}  *${label}*\n╰›  _${detail}_`
     : `${emoji}  *${label}*`;
 }
+
+/**
+ * WhatsApp link-preview style card.
+ * Renders as a small thumbnail + title + body strip below the message text.
+ *
+ * Usage:
+ *   const payload = await previewCard("your message text", {
+ *     title:     "Yuzuki MD",
+ *     body:      "Online ✅  •  Uptime: 2h 5m",
+ *     thumbUrl:  "https://example.com/thumb.jpg",
+ *     sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+ *   });
+ *   await sock.sendMessage(jid, payload, { quoted: msg });
+ *
+ * @param {string} text - the main message body (supports WhatsApp markdown)
+ * @param {{ title: string, body: string, thumbUrl?: string, sourceUrl?: string, largeThumb?: boolean }} opts
+ * @returns {Promise<{ text: string, contextInfo: object }>}
+ */
+export async function previewCard(text, { title, body, thumbUrl, sourceUrl, largeThumb = false } = {}) {
+  let thumbnail;
+  if (thumbUrl) {
+    try {
+      const r = await fetch(thumbUrl);
+      thumbnail = Buffer.from(await r.arrayBuffer());
+    } catch {
+      thumbnail = undefined;
+    }
+  }
+
+  return {
+    text,
+    contextInfo: {
+      externalAdReply: {
+        title,
+        body,
+        mediaType: 1,
+        previewType: 0,
+        thumbnail,
+        thumbnailUrl: thumbUrl,
+        renderLargerThumbnail: largeThumb,
+        sourceUrl: sourceUrl ?? thumbUrl ?? "",
+      },
+    },
+  };
+}
