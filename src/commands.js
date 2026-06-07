@@ -2692,11 +2692,15 @@ break;
             const d2=await r2.json();if(!d2?.data){await reply("❌ Could not fetch. The post may be private.");break;}
             await sock.sendMessage(jid,{text:`📥 *Instagram Download*\n${d2.data.replace(/<[^>]+>/g," ").trim().slice(0,500)}`},{quoted:msg});break;
           }
-          for(const m of d.medias.slice(0,3)){
+          // Use first image media as thumbnail for the preview strip
+          const igdlThumb=d.medias.find(m=>m.type==="image"||m.url?.includes(".jpg")||m.url?.includes(".png"))?.url||"";
+          for(let igdlIdx=0;igdlIdx<d.medias.slice(0,3).length;igdlIdx++){
+            const m=d.medias[igdlIdx];
+            const igdlCtx=igdlIdx===0&&igdlThumb?{externalAdReply:{title:"Instagram Download",body:`${d.medias.length} media item${d.medias.length>1?"s":""}`,thumbnailUrl:igdlThumb,mediaType:1,sourceUrl:u}}:undefined;
             if(m.type==="video"||m.url?.includes(".mp4")){
-              await sock.sendMessage(jid,{video:{url:m.url},caption:"📥 Instagram Video"},{quoted:msg});
+              await sock.sendMessage(jid,{video:{url:m.url},caption:"📥 Instagram Video",...(igdlCtx?{contextInfo:igdlCtx}:{})},{quoted:msg});
             }else{
-              await sock.sendMessage(jid,{image:{url:m.url},caption:"📥 Instagram Image"},{quoted:msg});
+              await sock.sendMessage(jid,{image:{url:m.url},caption:"📥 Instagram Image",...(igdlCtx?{contextInfo:igdlCtx}:{})},{quoted:msg});
             }
           }
         }catch(e){await reply(`❌ igdl: ${e.message}`);}
@@ -2726,7 +2730,8 @@ break;
           const d=await r.json();
           const vid=d?.medias?.find(m=>m.type==="video")||d?.medias?.[0];
           if(!vid?.url){await reply("❌ Could not fetch. The video may be private or the URL is invalid.");break;}
-          await sock.sendMessage(jid,{video:{url:vid.url},caption:`📥 Facebook Video${d.title?` — ${d.title.slice(0,80)}`:""}`},{quoted:msg});
+          const fbThumb=d.thumbnail||d.medias?.find(m=>m.type==="image")?.url||"";
+          await sock.sendMessage(jid,{video:{url:vid.url},caption:`📥 Facebook Video${d.title?` — ${d.title.slice(0,80)}`:""}`,contextInfo:{externalAdReply:{title:d.title||"Facebook Video",body:"📥 via Yuzuki MD",thumbnailUrl:fbThumb,mediaType:1,renderLargerThumbnail:true,sourceUrl:u}}},{quoted:msg});
         }catch(e){await reply(`❌ fbdl: ${e.message}`);}
         break;
       }
@@ -2740,16 +2745,20 @@ break;
           const r=await fetch(`https://api.vxtwitter.com/Twitter/status/${tweetId}`);
           const d=await r.json();
           if(!d){await reply("❌ Could not fetch tweet.");break;}
+          const twThumb=d.user_profile_image_url||"";
+          const twCtx={externalAdReply:{title:`@${d.user_name||"Twitter"}`,body:d.text?.slice(0,80)||"",thumbnailUrl:twThumb,mediaType:1,renderLargerThumbnail:false,sourceUrl:u}};
           if(d.media_extended?.length){
-            for(const m of d.media_extended.slice(0,2)){
+            for(let twI=0;twI<d.media_extended.slice(0,2).length;twI++){
+              const m=d.media_extended[twI];
               if(m.type==="video"||m.type==="gif"){
-                await sock.sendMessage(jid,{video:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`},{quoted:msg});
+                await sock.sendMessage(jid,{video:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`,contextInfo:twCtx},{quoted:msg});
               }else{
-                await sock.sendMessage(jid,{image:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`},{quoted:msg});
+                await sock.sendMessage(jid,{image:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`,contextInfo:twCtx},{quoted:msg});
               }
             }
           }else if(d.text){
-            await reply(`📥 *@${d.user_name}:*\n${d.text}`);
+            const twPayload=await previewCard(`📥 *@${d.user_name}:*\n${d.text}`,{title:`@${d.user_name}`,body:d.text.slice(0,60),thumbUrl:twThumb,sourceUrl:u});
+            await sock.sendMessage(jid,twPayload,{quoted:msg});
           }else{await reply("❌ No media found in this tweet.");}
         }catch(e){await reply(`❌ twdl: ${e.message}`);}
         break;
@@ -2766,7 +2775,7 @@ break;
           if(d.success&&d.link){
             const chunks=[];const resp=await fetch(d.link);const ab=await resp.arrayBuffer();const buf=Buffer.from(ab);
             if(buf.length>64*1024*1024){await reply("❌ File too large.");break;}
-            await sock.sendMessage(jid,{audio:buf,mimetype:"audio/mpeg",fileName:`${d.metadata?.title||"spotify_track"}.mp3`},{quoted:msg});
+            await sock.sendMessage(jid,{audio:buf,mimetype:"audio/mpeg",fileName:`${d.metadata?.title||"spotify_track"}.mp3`,contextInfo:{externalAdReply:{title:d.metadata?.title||"Spotify Track",body:d.metadata?.artists||"",thumbnailUrl:d.metadata?.coverUrl||d.metadata?.cover||"",mediaType:1,sourceUrl:u}}},{quoted:msg});
           }else{
             await reply(`❌ Could not download. Try searching YouTube instead:\n${prefix}ytmp3 ${d.metadata?.title||"song name"}`);
           }
@@ -3055,8 +3064,9 @@ break;
           const r=await fetch("https://hacker-news.firebaseio.com/v0/topstories.json");
           const ids=await r.json();const top5=ids.slice(0,5);
           const stories=await Promise.all(top5.map(id=>fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r=>r.json())));
-          const text=`📰 *Top Tech News*\n━━━━━━━━━━━━━━━━━━━\n`+stories.map((s,i)=>`${i+1}. *${s.title}*\n   🔗 ${s.url??"https://news.ycombinator.com/item?id="+s.id}`).join("\n\n");
-          await replyChannel(text);
+          const newsText=`📰 *Top Tech News*\n━━━━━━━━━━━━━━━━━━━\n`+stories.map((s,i)=>`${i+1}. *${s.title}*\n   🔗 ${s.url??"https://news.ycombinator.com/item?id="+s.id}`).join("\n\n");
+          const newsPayload=await previewCard(newsText,{title:"🔥 Hacker News",body:`Top ${stories.length} stories right now`,thumbUrl:"https://news.ycombinator.com/y18.svg",sourceUrl:"https://news.ycombinator.com"});
+          await sock.sendMessage(jid,newsPayload,{quoted:msg});
         }catch(e){await reply(`❌ News: ${e.message}`);}
         break;
       }
@@ -3072,32 +3082,8 @@ break;
           const lyr=d.lyrics.trim().slice(0,3000);
           const finalLyrics =
   `🎵 *${artist} — ${song}*\n━━━━━━━━━━━━━━━━━━━\n${lyr}${d.lyrics.length>3000?"\n...(truncated)":""}`;
-
-const msgx = generateWAMessageFromContent(jid,{
-  viewOnceMessage:{
-    message:{
-      messageContextInfo:{
-        deviceListMetadata:{},
-        deviceListMetadataVersion:2,
-      },
-      interactiveMessage:{
-        body:{ text: finalLyrics },
-        footer:{ text: settings.botName ?? "Yuzuki MD" },
-        nativeFlowMessage:{
-          buttons:[{
-            name:"cta_copy",
-            buttonParamsJson:JSON.stringify({
-              display_text:"📋 Copy Lyrics",
-              copy_code:lyr
-            })
-          }]
-        }
-      }
-    }
-  }
-},{ quoted: msg });
-
-await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
+          const lyricsPayload=await previewCard(finalLyrics,{title:`${artist} — ${song}`,body:`🎵 Lyrics${d.lyrics.length>3000?" (truncated)":""}`,thumbUrl:`https://wsrv.nl/?url=https://img.youtube.com/vi/${encodeURIComponent(song)}/hqdefault.jpg&w=300&h=300&fit=cover`,sourceUrl:`https://www.google.com/search?q=${encodeURIComponent(artist+" "+song+" lyrics")}`});
+          await sock.sendMessage(jid,lyricsPayload,{quoted:msg});
         }catch(e){await reply(`❌ Lyrics: ${e.message}`);}
         break;
       }
@@ -3111,32 +3097,8 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
           const meanings=entry.meanings.slice(0,2).map(m=>{const d=m.definitions[0];return `*${m.partOfSpeech}*: ${d.definition}${d.example?`\n_"${d.example}"_`:""}`;}).join("\n\n");
           const definitionText =
   `📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${meanings}`;
-
-const msgx = generateWAMessageFromContent(jid,{
-  viewOnceMessage:{
-    message:{
-      messageContextInfo:{
-        deviceListMetadata:{},
-        deviceListMetadataVersion:2,
-      },
-      interactiveMessage:{
-        body:{ text: definitionText },
-        footer:{ text: settings.botName ?? "Yuzuki MD" },
-        nativeFlowMessage:{
-          buttons:[{
-            name:"cta_copy",
-            buttonParamsJson:JSON.stringify({
-              display_text:"📋 Copy Definition",
-              copy_code: meanings
-            })
-          }]
-        }
-      }
-    }
-  }
-},{ quoted: msg });
-
-await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
+          const definePayload=await previewCard(definitionText,{title:entry.word,body:`📖 ${entry.meanings[0]?.partOfSpeech||"Definition"}  •  ${settings.botName??"Yuzuki MD"}`,sourceUrl:`https://en.wiktionary.org/wiki/${encodeURIComponent(entry.word)}`});
+          await sock.sendMessage(jid,definePayload,{quoted:msg});
         }catch(e){await reply(`❌ Define: ${e.message}`);}
         break;
       }
@@ -3518,11 +3480,14 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         try {
           const items = await igDl(text);
           if (!items?.length) throw new Error("No media found.");
+          // First image item used as preview thumbnail
+          const igFirstImg = items.find(it => it.type !== "video")?.url || items[0]?.url || "";
           for (let i = 0; i < Math.min(items.length, 10); i++) {
             const item = items[i];
+            const igCtx = i === 0 ? { externalAdReply: { title: "Instagram Downloader", body: `${items.length} media item${items.length > 1 ? "s" : ""} • via Yuzuki MD`, thumbnailUrl: igFirstImg, mediaType: 1, renderLargerThumbnail: false, sourceUrl: text } } : undefined;
             const opts = item.type === "video"
-              ? { video: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}` }
-              : { image: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}` };
+              ? { video: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}`, ...(igCtx ? { contextInfo: igCtx } : {}) }
+              : { image: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}`, ...(igCtx ? { contextInfo: igCtx } : {}) };
             await sock.sendMessage(jid, opts, { quoted: msg });
           }
           useLimit(sender, igCost, isOwner(sender));
@@ -3670,7 +3635,14 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
           results.slice(0, 10).forEach((t, i) => {
             out += `${i + 1}. *${t.name}*\n   👤 ${t.artists}\n   ⏱️ ${t.duration || "?"} | 🔗 ${t.link}\n\n`;
           });
-          reply(out.trim());
+          const spotifyThumb = results[0]?.thumbnail || results[0]?.image || "";
+          const spotifyPayload = await previewCard(out.trim(), {
+            title: `🎵 ${results[0]?.name || "Spotify Search"}`,
+            body: `👤 ${results[0]?.artists || ""} • ${results.length} results`,
+            thumbUrl: spotifyThumb || "https://storage.googleapis.com/pr-newsroom-wp/1/2018/11/Spotify_Logo_RGB_Green.png",
+            sourceUrl: results[0]?.link || "https://open.spotify.com",
+          });
+          await sock.sendMessage(jid, spotifyPayload, { quoted: msg });
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
