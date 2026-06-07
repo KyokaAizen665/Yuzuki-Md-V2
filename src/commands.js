@@ -2118,45 +2118,17 @@ const summaryRes = await fetch(
 const s = await summaryRes.json();
 const wikiUrl = s.content_urls?.desktop?.page ?? "";
 
-const msgx = generateWAMessageFromContent(jid, {
-  viewOnceMessage: {
-    message: {
-      messageContextInfo: {
-        deviceListMetadata: {},
-        deviceListMetadataVersion: 2,
-      },
-      interactiveMessage: {
-        body: {
-          text:
-            `📚 *${s.title}*\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `${s.extract?.slice(0, 500) ?? "No summary available."}`
-        },
-        footer: {
-          text: settings.botName ?? "Yuzuki MD"
-        },
-        nativeFlowMessage: {
-          buttons: [
-            {
-              name: "cta_url",
-              buttonParamsJson: JSON.stringify({
-                display_text: "📖 Read on Wikipedia",
-                url: wikiUrl,
-                merchant_url: wikiUrl
-              })
-            }
-          ]
-        }
-      }
-    }
+const wikiThumb = s.thumbnail?.source || s.originalimage?.source || null;
+const wikiPayload = await previewCard(
+  `📚 *${s.title}*\n━━━━━━━━━━━━━━━━━━━\n${s.extract?.slice(0, 500) ?? "No summary available."}`,
+  {
+    title: s.title,
+    body: `📖 Wikipedia`,
+    thumbUrl: wikiThumb,
+    sourceUrl: wikiUrl,
   }
-}, { quoted: msg });
-
-await sock.relayMessage(
-  jid,
-  msgx.message,
-  { messageId: msgx.key.id }
 );
+await sock.sendMessage(jid, wikiPayload, { quoted: msg });
 
 } catch {
 await reply("❌ Failed to fetch Wikipedia article.");
@@ -2687,7 +2659,8 @@ break;
           const fmt=ytdl.chooseFormat(info.formats,{quality:"highestaudio",filter:"audioonly"});
           const chunks=[];await new Promise((res,rej)=>{const s=ytdl.downloadFromInfo(info,{format:fmt});s.on("data",c=>chunks.push(c));s.on("end",res);s.on("error",rej);});
           const buf=Buffer.concat(chunks);if(buf.length>64*1024*1024){await reply("❌ Too large.");break;}
-          await sock.sendMessage(jid,{audio:buf,mimetype:fmt.mimeType?.split(";")[0]||"audio/webm",fileName:`${info.videoDetails.title.slice(0,40)}.webm`},{quoted:msg});
+          const ytmp3Thumb=info.videoDetails.thumbnails?.slice(-1)[0]?.url||"";
+          await sock.sendMessage(jid,{audio:buf,mimetype:fmt.mimeType?.split(";")[0]||"audio/webm",fileName:`${info.videoDetails.title.slice(0,40)}.webm`,contextInfo:{externalAdReply:{title:info.videoDetails.title.slice(0,60),body:info.videoDetails.author?.name||"",thumbnailUrl:ytmp3Thumb,mediaType:1,sourceUrl:url}}},{quoted:msg});
         }catch(e){await reply(`❌ ytmp3: ${e.message}`);}
         break;
       }
@@ -2702,7 +2675,8 @@ break;
           if(!fmt){await reply("❌ No suitable format found.");break;}
           const chunks=[];await new Promise((res,rej)=>{const s=ytdl.downloadFromInfo(info,{format:fmt});s.on("data",c=>chunks.push(c));s.on("end",res);s.on("error",rej);});
           const buf=Buffer.concat(chunks);if(buf.length>64*1024*1024){await reply("❌ Too large.");break;}
-          await sock.sendMessage(jid,{video:buf,caption:`🎬 ${info.videoDetails.title}`,mimetype:"video/mp4"},{quoted:msg});
+          const ytmp4Thumb=info.videoDetails.thumbnails?.slice(-1)[0]?.url||"";
+          await sock.sendMessage(jid,{video:buf,caption:`🎬 ${info.videoDetails.title}`,mimetype:"video/mp4",contextInfo:{externalAdReply:{title:info.videoDetails.title.slice(0,60),body:info.videoDetails.author?.name||"",thumbnailUrl:ytmp4Thumb,mediaType:1,renderLargerThumbnail:true,sourceUrl:url}}},{quoted:msg});
         }catch(e){await reply(`❌ ytmp4: ${e.message}`);}
         break;
       }
@@ -2739,7 +2713,7 @@ break;
           const v=d.data;
           const vidUrl=v.play||v.hdplay||v.wmplay;
           if(!vidUrl){await reply("❌ No video found.");break;}
-          await sock.sendMessage(jid,{video:{url:vidUrl},caption:`📥 *${v.title?.slice(0,100)||"TikTok Video"}*\n👤 ${v.author?.nickname||"?"}  👁 ${fmtNum(v.play_count)}  ❤️ ${fmtNum(v.digg_count)}`},{quoted:msg});
+          await sock.sendMessage(jid,{video:{url:vidUrl},caption:`📥 *${v.title?.slice(0,100)||"TikTok Video"}*\n👤 ${v.author?.nickname||"?"}  👁 ${fmtNum(v.play_count)}  ❤️ ${fmtNum(v.digg_count)}`,contextInfo:{externalAdReply:{title:v.title?.slice(0,60)||"TikTok Video",body:`👤 ${v.author?.nickname||"?"} • ❤️ ${fmtNum(v.digg_count)}`,thumbnailUrl:v.cover||"",mediaType:1,renderLargerThumbnail:true,sourceUrl:u}}},{quoted:msg});
         }catch(e){await reply(`❌ tiktok: ${e.message}`);}
         break;
       }
@@ -3064,18 +3038,14 @@ break;
           const cur=d.current_condition[0],area=d.nearest_area[0];
           const weatherText = `🌤️ *Weather: ${area.areaName[0].value}, ${area.country[0].value}*\n━━━━━━━━━━━━━━━━━━━\n🌡️ *Temp:* ${cur.temp_C}°C (feels ${cur.FeelsLikeC}°C)\n☁️ *Condition:* ${cur.weatherDesc[0].value}\n💧 *Humidity:* ${cur.humidity}%\n💨 *Wind:* ${cur.windspeedKmph} km/h`;
           const wttrUrl = `https://wttr.in/${encodeURIComponent(city)}`;
-          const msxWth = generateWAMessageFromContent(jid, {
-            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-              interactiveMessage: {
-                body: { text: weatherText },
-                footer: { text: settings.botName ?? "Yuzuki MD" },
-                nativeFlowMessage: { buttons: [
-                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🌐 Full Forecast", url: wttrUrl, merchant_url: wttrUrl }) }
-                ]}
-              }
-            }}
-          }, { quoted: msg });
-          await sock.relayMessage(jid, msxWth.message, { messageId: msxWth.key.id });
+          const wttrThumb = `https://wttr.in/${encodeURIComponent(city)}_1.png`;
+          const weatherPayload = await previewCard(weatherText, {
+            title: `${area.areaName[0].value}, ${area.country[0].value}`,
+            body: `${cur.weatherDesc[0].value} • ${cur.temp_C}°C`,
+            thumbUrl: wttrThumb,
+            sourceUrl: wttrUrl,
+          });
+          await sock.sendMessage(jid, weatherPayload, { quoted: msg });
         }catch(e){await reply(`❌ Weather: ${e.message}`);}
         break;
       }
