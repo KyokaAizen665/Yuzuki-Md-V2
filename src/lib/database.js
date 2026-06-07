@@ -46,7 +46,7 @@ export function initUserDB(senderJid, pushName = "User") {
     db.users[senderJid] = {
       level: 0, exp: 0, money: 0, bank: 0, health: 100,
       limitfree: 15, limitprem: 0, limitbuy: 0,
-      lastmining: 0, lastdungeon: 0,
+      lastmining: 0, lastdungeon: 0, lastwork: 0, lastdaily: 0,
       name: pushName, registered: false, premium: false,
       bio: "", badges: [], msgCount: 0, redeemedKeys: [],
     };
@@ -62,6 +62,8 @@ export function initUserDB(senderJid, pushName = "User") {
     if (typeof u.limitbuy !== "number") u.limitbuy = 0;
     if (typeof u.lastmining !== "number") u.lastmining = 0;
     if (typeof u.lastdungeon !== "number") u.lastdungeon = 0;
+    if (typeof u.lastwork !== "number") u.lastwork = 0;
+    if (typeof u.lastdaily !== "number") u.lastdaily = 0;
     if (!u.name) u.name = pushName;
     // New fields — backward compat
     if (typeof u.bio !== "string") u.bio = "";
