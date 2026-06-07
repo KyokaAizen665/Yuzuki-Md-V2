@@ -111,6 +111,7 @@ export const state = {
 
 let reconnectTimer = null;
 let messageHandler = null; // FIX: Track event listener to prevent duplicates
+let _starting = false;    // guard: prevent concurrent startBot() calls
 
 /**
  * Extract plain text from any message type Baileys sends.
@@ -146,6 +147,19 @@ export function getBotState() {
 }
 
 export async function startBot() {
+  if (_starting) {
+    logger.warn("startBot() called while already starting — ignoring duplicate");
+    return;
+  }
+  _starting = true;
+  try {
+    await _startBotImpl();
+  } finally {
+    _starting = false;
+  }
+}
+
+async function _startBotImpl() {
   if (!fs.existsSync(SESSION_DIR)) {
     fs.mkdirSync(SESSION_DIR, { recursive: true });
   }
@@ -228,24 +242,31 @@ export async function startBot() {
     logger.info({ phoneNumber }, "ownerNumber saved to settings.json");
 
     try {
-      // Wait for WhatsApp WebSocket handshake before requesting the code.
-      // A flat delay is unreliable — on slow connections 2 s is not enough,
-      // and the pairing request fails silently → "couldn't link device".
+      // Wait for the WS to reach "connecting" state (noise handshake done),
+      // then add a 500 ms settle delay before requesting the code.
+      // Also fail fast if the socket closes during the wait.
       await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timeout waiting for WS handshake")), 15000);
-        const handler = (update) => {
-          // connection.update fires with isOnline/qr/etc once the WS is up
-          if (update.connection === "connecting" || update.qr || update.isOnline) {
+        const timeout = setTimeout(() => {
+          sock.ev.off("connection.update", pairingWaitHandler);
+          reject(new Error("Timeout waiting for WS to be ready (20s)"));
+        }, 20000);
+
+        const pairingWaitHandler = (update) => {
+          if (update.connection === "connecting") {
             clearTimeout(timeout);
-            sock.ev.off("connection.update", handler);
-            resolve();
+            sock.ev.off("connection.update", pairingWaitHandler);
+            // 500 ms allows noise-protocol bytes to settle before pairing request
+            setTimeout(resolve, 500);
+          } else if (update.connection === "close") {
+            clearTimeout(timeout);
+            sock.ev.off("connection.update", pairingWaitHandler);
+            const reason = update.lastDisconnect?.error?.message ?? "unknown";
+            reject(new Error(`WS closed before pairing ready: ${reason}`));
           }
         };
-        sock.ev.on("connection.update", handler);
-      }).catch(() => {
-        // Fallback: just wait 3 s if the event never fires
-        return new Promise((r) => setTimeout(r, 3000));
+        sock.ev.on("connection.update", pairingWaitHandler);
       });
+
       const code = await sock.requestPairingCode(phoneNumber);
       state.pairingCode = code;
       const line = "=".repeat(44);
@@ -256,8 +277,10 @@ export async function startBot() {
       console.log(`  → Link with phone number → enter code`);
       console.log(`${line}\n`);
     } catch (err) {
-      logger.error({ err }, "Failed to request pairing code — retrying in 5s");
-      setTimeout(() => startBot().catch(console.error), 5000);
+      logger.error({ err }, "Failed to request pairing code — retrying in 8s");
+      // Close the current socket cleanly so it doesn't linger and block the retry
+      try { sock.end(new Error("pairing-failure-cleanup")); } catch {}
+      setTimeout(() => startBot().catch(console.error), 8000);
       return;
     }
   }
@@ -280,6 +303,7 @@ export async function startBot() {
       if (shouldReconnect) {
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => {
+          // _starting guard in startBot() prevents duplicate restarts
           startBot().catch((err) => logger.error({ err }, "Failed to restart bot"));
         }, 5000);
       }
