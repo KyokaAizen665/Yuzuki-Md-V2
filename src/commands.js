@@ -229,11 +229,11 @@ export async function handleCommand({ sock, msg, command, args }) {
 
       const vq2 = getVerifiedQuoted(settings);
       let thumbnail2;
-      try { const tr = await fetch("https://qu.ax/RYgoy"); thumbnail2 = Buffer.from(await tr.arrayBuffer()); } catch { thumbnail2 = undefined; }
+      try { const tr = await fetch("https://www.upload.ee/image/19419994/file.jpg"); thumbnail2 = Buffer.from(await tr.arrayBuffer()); } catch { thumbnail2 = undefined; }
       const ctx2 = {
         forwardingScore: 2025, isForwarded: true,
         ...(settings.channelId && settings.channelName ? { forwardedNewsletterMessageInfo: { newsletterJid: settings.channelId, serverMessageId: null, newsletterName: settings.channelName } } : {}),
-        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://qu.ax/RYgoy", renderLargerThumbnail: false, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
+        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://www.upload.ee/image/19419994/file.jpg", renderLargerThumbnail: false, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
         quotedMessage: vq2.message, participant: vq2.key.participant, remoteJid: vq2.key.remoteJid,
       };
       try { await sock.sendMessage(jid, { image: { url: imageUrl2 }, caption: subCaption, contextInfo: ctx2 }); }
@@ -315,7 +315,7 @@ export async function handleCommand({ sock, msg, command, args }) {
           thumbnailUrl: imageUrl,
           renderLargerThumbnail: false,
           sourceUrl: "t.me//DeathCore_Xr",
-          mediaUrl: "https://qu.ax/5ChSk",
+          mediaUrl: "https://www.upload.ee/image/19419994/file.jpg",
         },
         quotedMessage: vq.message,
         participant: vq.key.participant,
@@ -343,7 +343,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               },
               interactiveMessage: {
                 body: { text: menuCaption },
-                footer: { text: `Powered by KyōkaBotz` },
+                footer: { text: `Powered by KyōkaBotz - yuzukimd` },
                 header: {
                   title: "",
                   subtitle: "",
@@ -374,93 +374,111 @@ export async function handleCommand({ sock, msg, command, args }) {
       break;
     }
 
-    // ── .allmenu — all categories as swipeable carousel cards ──────────
+    // ── .allmenu — full command list, image + single select, no carousel ──────────
     case "allmenu": {
       await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
       try {
         const botName = settings.botName ?? "Yuzuki";
-        const sharedMedia = await prepareWAMessageMedia(
-          { image: { url: "https://qu.ax/RYgoy" } },
-          { upload: sock.waUploadToServer }
-        );
+        const totalCmds = Object.values(CATEGORIES).reduce((a, c) => a + c.commands.length, 0);
 
-        const ownerNum = (settings.ownerNumber ?? "").replace(/\D/g, "");
-
-        // 10-card layout — merged categories keep us under WhatsApp's carousel limit
-        const LAYOUT = [
-          ["ai"],
-          ["downloader", "youtube"],
-          ["fun", "game"],
-          ["general"],
-          ["group"],
-          ["owner"],
-          ["protect"],
-          ["profile"],
-          ["maker", "tools"],
-          ["search"],
-        ];
-
-        // One CTA button per card for the first 4 cards
-        const cta = (display_text, url) => ({
-          name: "cta_url",
-          buttonParamsJson: JSON.stringify({ display_text, url, merchant_url: url }),
-        });
-        const ctaButtons = [
-          cta("⭐ GitHub Repo",  "https://github.com/KyokaAizen665/Yuzuki-Md-V2"),
-          cta("💬 Chat Owner",   `https://wa.me/${ownerNum}`),
-          cta("📢 Join Channel", "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"),
-          cta("✈️ Telegram",     "https://t.me/DeathCore_Xr"),
-        ];
-
-        const cards = LAYOUT.map((keys, idx) => {
-          const cats = keys.map((k) => CATEGORIES[k]);
-          const subtitle = cats.map((c) => `${c.icon} ${c.title}`).join("  ·  ");
-          const bodyText = cats
-            .map((c) => {
-              const cmds = c.commands.map((cmd) => `➤ ${prefix}${cmd}`).join("\n");
-              return `${c.icon} *${c.title}*\n${cmds}`;
+        // Build full caption — every category and every command
+        const fullCaption =
+          `🎐 *${botName} — Full Command List* 🎐\n` +
+          `┈┈┈┈୨♡୧┈┈┈┈\n\n` +
+          Object.values(CATEGORIES)
+            .map((cat) => {
+              const cmds = cat.commands.map((cmd) => `  ➤ ${prefix}${cmd}`).join("\n");
+              return `${cat.icon} *${cat.title}*\n${cmds}`;
             })
-            .join(`\n${"─".repeat(20)}\n`);
+            .join("\n\n") +
+          `\n\n┈┈┈┈୨♡୧┈┈┈┈\n` +
+          `✨ *${totalCmds} commands total* — Use *${prefix}menu <category>* for details.`;
 
-          return {
-            header: {
-              ...sharedMedia,
-              title: "",
-              subtitle,
-              hasMediaAttachment: true,
-            },
-            body: { text: bodyText },
-            nativeFlowMessage: {
-              buttons: idx < ctaButtons.length ? [ctaButtons[idx]] : [],
-            },
-          };
-        });
+        // Local asset image (falls back to remote menuBgUrl if set)
+        let imgBuf;
+        if (settings.menuBgUrl) {
+          try {
+            const r = await fetch(settings.menuBgUrl);
+            imgBuf = Buffer.from(await r.arrayBuffer());
+          } catch { imgBuf = fs.readFileSync(MENU_BG); }
+        } else {
+          imgBuf = fs.readFileSync(MENU_BG);
+        }
 
-        const carouselMsg = generateWAMessageFromContent(
-          jid,
-          {
+        const vq = getVerifiedQuoted(settings);
+
+        // Single select rows — one per category, same as .menu
+        const menuRows = Object.entries(CATEGORIES).map(([key, cat]) => ({
+          title: `${cat.icon} ${cat.title}`,
+          description: `${cat.commands.length} commands`,
+          id: `${prefix}menu ${key}`,
+        }));
+
+        // Try interactive image + single_select (mirrors .menu behaviour)
+        try {
+          const mediaHeader = await prepareWAMessageMedia(
+            { image: imgBuf },
+            { upload: sock.waUploadToServer }
+          );
+          const interactiveMsg = generateWAMessageFromContent(jid, {
             viewOnceMessage: {
               message: {
-                messageContextInfo: {
-                  deviceListMetadata: {},
-                  deviceListMetadataVersion: 2,
-                },
+                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
                 interactiveMessage: {
-                  body: {
-                    text:
-                      `📋 *${botName} — Full Menu*\n` +
-                      `${"━".repeat(26)}\n` +
-                      `Swipe the cards to browse all categories.\n` +
-                      `Type *${prefix}<command>* to use any command.`,
+                  contextInfo: {
+                    externalAdReply: {
+                      title: botName,
+                      body: `${totalCmds} commands available`,
+                      thumbnail: imgBuf,
+                      mediaType: 1,
+                      renderLargerThumbnail: false,
+                      sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+                    },
+                    quotedMessage: vq.message,
+                    participant: vq.key.participant,
+                    remoteJid: vq.key.remoteJid,
                   },
-                  carouselMessage: { cards, messageVersion: 1 },
+                  body: { text: fullCaption },
+                  footer: { text: `Powered by ${botName}` },
+                  header: { title: "", subtitle: "", hasMediaAttachment: true, ...mediaHeader },
+                  nativeFlowMessage: {
+                    buttons: [{
+                      name: "single_select",
+                      buttonParamsJson: JSON.stringify({
+                        title: "📂 Browse Categories",
+                        sections: [{ title: "Menu Categories", rows: menuRows }],
+                      }),
+                    }],
+                  },
                 },
               },
             },
-          },
-          { quoted: msg }
-        );
-        await sock.relayMessage(jid, carouselMsg.message, { messageId: carouselMsg.key.id });
+          }, { quoted: msg }, {});
+          await sock.relayMessage(
+            interactiveMsg.key.remoteJid,
+            interactiveMsg.message,
+            { messageId: interactiveMsg.key.id }
+          );
+        } catch {
+          // Fallback — plain image with caption, fake contact quote, small externalAdReply
+          await sock.sendMessage(jid, {
+            image: imgBuf,
+            caption: fullCaption,
+            contextInfo: {
+              externalAdReply: {
+                title: botName,
+                body: `${totalCmds} commands available`,
+                thumbnail: imgBuf,
+                mediaType: 1,
+                renderLargerThumbnail: false,
+                sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+              },
+              quotedMessage: vq.message,
+              participant: vq.key.participant,
+              remoteJid: vq.key.remoteJid,
+            },
+          }, { quoted: vq });
+        }
 
         await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
       } catch (e) {
@@ -516,7 +534,7 @@ export async function handleCommand({ sock, msg, command, args }) {
       const payload0 = await previewCard(text0, {
         title:     botName0,
         body:      `Online ✅  •  Uptime: ${uptime0}`,
-        thumbUrl:  "https://qu.ax/RYgoy",
+        thumbUrl:  "https://www.upload.ee/image/19419994/file.jpg",
         sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
       });
       const channelJid0 = settings.channelId ? `${settings.channelId}@newsletter` : null;
@@ -545,7 +563,7 @@ export async function handleCommand({ sock, msg, command, args }) {
     case "creator":
     case "developer":
     case "own": {
-const imageUrl = "https://qu.ax/5ChSk";
+const imageUrl = "https://www.upload.ee/image/19419994/file.jpg";
 
 const media1 = await prepareWAMessageMedia(
 { image: { url: imageUrl } },
@@ -572,7 +590,7 @@ hasMediaAttachment: true
 },
 body: {
 text:
-"*𝗛𝗶 👋. 𝗧𝗵𝗶𝘀 𝗶𝘀 𝘁𝗵𝗲 𝗢𝘄𝗻𝗲𝗿 𝗮𝗻𝗱 𝗗𝗲𝘃 𝗼𝗳 𝗬𝘂𝘇𝘂𝗸𝗶 𝗠𝗗.*\n\n" +
+"*Hi 👋. Chat Aizen the developer who made me.*\n\n" +
 "𝗡𝗮𝗺𝗲: Aizen\n" +
 "𝗖𝗼𝗻𝘁𝗮𝗰𝘁: +233533416608"
 },
@@ -1347,7 +1365,7 @@ break;
 const mediaHeader = await prepareWAMessageMedia(
 {
 image: {
-url: "https://qu.ax/5ChSk"
+url: "https://www.upload.ee/image/19419994/file.jpg"
 }
 },
 {
@@ -1682,7 +1700,7 @@ const groupJids = Object.keys(chats);
 const mediaHeader = await prepareWAMessageMedia(
   {
     image: {
-      url: "https://qu.ax/5ChSk"
+      url: "https://www.upload.ee/image/19419994/file.jpg"
     }
   },
   {
