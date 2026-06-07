@@ -233,14 +233,15 @@ export async function startBot() {
       // and the pairing request fails silently → "couldn't link device".
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error("Timeout waiting for WS handshake")), 15000);
-        const unsub = sock.ev.on("connection.update", (update) => {
+        const handler = (update) => {
           // connection.update fires with isOnline/qr/etc once the WS is up
           if (update.connection === "connecting" || update.qr || update.isOnline) {
             clearTimeout(timeout);
-            unsub?.();
+            sock.ev.off("connection.update", handler);
             resolve();
           }
-        });
+        };
+        sock.ev.on("connection.update", handler);
       }).catch(() => {
         // Fallback: just wait 3 s if the event never fires
         return new Promise((r) => setTimeout(r, 3000));
