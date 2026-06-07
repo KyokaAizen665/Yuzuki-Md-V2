@@ -53,6 +53,7 @@ import {
   initUserDB, loadDB, saveDB,
   getLimitCost, setLimitCost,
   checkLimit, useLimit,
+  addXP, addCoins, spendCoins, getLeaderboard, getRankPosition,
 } from "./lib/database.js";
 import { antilinkDetector, getGroupData, setGroupData } from "./lib/protect.js";
 const execAsync = promisify(exec);
@@ -183,7 +184,21 @@ export async function handleCommand({ sock, msg, command, args }) {
   const pushname = msg.pushName ?? "User";
   const text = args.join(" ").trim();
 
-      if (OWNER_COMMANDS.has(command)) {
+  // ── Auto-award XP on every command ───────────────────────────────────────────
+  try {
+    const xpGain = Math.floor(Math.random() * 5) + 3; // 3–7 XP per command
+    const xpResult = addXP(sender, xpGain, pushname);
+    if (xpResult.leveled) {
+      setTimeout(() => {
+        sock.sendMessage(jid, {
+          text: `🎉 *Level Up!* @${sender.split("@")[0].split(":")[0]}\n\n⭐ You are now *Level ${xpResult.newLevel}*! Keep it up 🔥`,
+          mentions: [sender],
+        }).catch(() => {});
+      }, 800);
+    }
+  } catch {}
+
+  if (OWNER_COMMANDS.has(command)) {
     if (!isOwner(senderJid, settings)) {
       await reply("This command is restricted to bot owners.");
       return;
@@ -1758,19 +1773,201 @@ break;
         break;
       }
 
-      case "bio":
-      case "setbio":
-      case "reg":
+      // ── Profile / RPG ─────────────────────────────────────────────────────────
+
+      case "reg": {
+        initUserDB(sender, pushname);
+        const db0 = loadDB();
+        const u0 = db0.users[sender];
+        if (u0.registered) {
+          await reply(`✅ You are already registered, *${u0.name}*!\n\nUse *.rank* to see your profile.`);
+          break;
+        }
+        u0.registered = true;
+        u0.money = (u0.money || 0) + 100;
+        if (!Array.isArray(u0.badges)) u0.badges = [];
+        if (!u0.badges.includes("🌱 Newcomer")) u0.badges.push("🌱 Newcomer");
+        if (!u0.bio) u0.bio = "";
+        saveDB(db0);
+        await replyChannel(
+          `🎉 *Welcome, ${pushname}!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `✅ Profile registered!\n` +
+          `💰 Welcome bonus: *+100 coins*\n` +
+          `🌱 Badge earned: *Newcomer*\n\n` +
+          `Use *.rank* to see your profile\nUse *.setbio* to set your bio`
+        );
+        break;
+      }
+
       case "rank":
       case "xp":
-      case "leaderboard":
-      case "badge":
-      case "vcard":
-      case "gift":
-      case "redeem":
-      case "setpp":
-        await reply(`⚙️ *${command}* requires a database to store user profiles. Connect a database and implement profile storage to enable this command.`);
+      case "vcard": {
+        initUserDB(sender, pushname);
+        const dbR = loadDB();
+        const uR = dbR.users[sender];
+        if (!uR.registered) {
+          await reply(`❌ You are not registered yet!\n\nUse *${prefix}reg* to create your profile.`);
+          break;
+        }
+        const lvlR = uR.level || 0;
+        const expR = uR.exp || 0;
+        const xpNeedR = (lvlR + 1) * 100;
+        const filledR = Math.round((expR / xpNeedR) * 10);
+        const barR = "█".repeat(filledR) + "░".repeat(10 - filledR);
+        const rankPos = getRankPosition(sender) ?? "—";
+        const badgesR = (uR.badges || []).join(" ") || "None";
+        const bioR = uR.bio || "No bio set.";
+        await replyChannel(
+          `👤 *${uR.name || pushname}*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🏆 Rank: *#${rankPos}*\n` +
+          `⭐ Level: *${lvlR}*\n` +
+          `✨ XP: *${expR}/${xpNeedR}*\n` +
+          `[${barR}]\n` +
+          `💰 Coins: *${uR.money || 0}*\n` +
+          `🏦 Bank: *${uR.bank || 0}*\n` +
+          `❤️ HP: *${uR.health || 100}*\n` +
+          `💬 Messages: *${uR.msgCount || 0}*\n` +
+          `🎖 Badges: ${badgesR}\n` +
+          `📝 Bio: _${bioR}_`
+        );
         break;
+      }
+
+      case "leaderboard": {
+        const lbList = getLeaderboard(10);
+        if (!lbList.length) {
+          await reply(`No registered users yet!\n\nUse *${prefix}reg* to create your profile.`);
+          break;
+        }
+        const medals = ["🥇","🥈","🥉"];
+        const rows = lbList.map((u, i) => {
+          const icon = medals[i] ?? `${i + 1}.`;
+          return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
+        }).join("\n");
+        await replyChannel(`🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${rows}`);
+        break;
+      }
+
+      case "bio": {
+        initUserDB(sender, pushname);
+        const dbBio = loadDB();
+        const uBio = dbBio.users[sender];
+        await reply(
+          `📝 *Bio — ${uBio.name || pushname}*\n\n` +
+          (uBio.bio || `No bio set yet.\nUse *${prefix}setbio <text>* to set one.`)
+        );
+        break;
+      }
+
+      case "setbio": {
+        if (!text) { await reply(`Usage: ${prefix}setbio <your bio>`); break; }
+        if (text.length > 150) { await reply("❌ Bio is too long (max 150 characters)."); break; }
+        initUserDB(sender, pushname);
+        const dbSb = loadDB();
+        dbSb.users[sender].bio = text;
+        saveDB(dbSb);
+        await reply(`✅ Bio updated!\n\n📝 _${text}_`);
+        break;
+      }
+
+      case "badge": {
+        initUserDB(sender, pushname);
+        const dbBad = loadDB();
+        const uBad = dbBad.users[sender];
+        const badgeList = uBad.badges || [];
+        if (!badgeList.length) {
+          await reply(`You have no badges yet!\n\n🎖 Keep using the bot to earn badges.\nUse *${prefix}reg* to register if you haven't.`);
+          break;
+        }
+        await reply(
+          `🎖 *Badges — ${uBad.name || pushname}*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          badgeList.join("\n") +
+          `\n\n_Total: ${badgeList.length} badge(s)_`
+        );
+        break;
+      }
+
+      case "gift": {
+        const giftMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+        const giftTarget = giftMentioned[0];
+        const giftAmount = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
+        if (!giftTarget) { await reply(`Usage: ${prefix}gift @user <amount>`); break; }
+        if (!giftAmount || giftAmount <= 0) { await reply(`❌ Enter a valid amount.\nUsage: ${prefix}gift @user 100`); break; }
+        initUserDB(sender, pushname);
+        initUserDB(giftTarget, "User");
+        const dbGift = loadDB();
+        const giver = dbGift.users[sender];
+        const receiver = dbGift.users[giftTarget];
+        if ((giver.money || 0) < giftAmount) {
+          await reply(`❌ Insufficient coins.\n💰 You have: *${giver.money || 0}* coins`);
+          break;
+        }
+        giver.money -= giftAmount;
+        receiver.money = (receiver.money || 0) + giftAmount;
+        saveDB(dbGift);
+        await replyChannel(
+          `🎁 *Gift Sent!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👤 From: *${pushname}*\n` +
+          `👤 To: @${giftTarget.split("@")[0].split(":")[0]}\n` +
+          `💰 Amount: *${giftAmount} coins*\n` +
+          `💳 Your balance: *${giver.money} coins*`
+        );
+        break;
+      }
+
+      case "redeem": {
+        const keyInput = args[0]?.trim();
+        if (!keyInput) { await reply(`Usage: ${prefix}redeem <key>`); break; }
+        const allKeys = getKeys();
+        const foundKey = allKeys.find(k => k.key === keyInput && k.active !== false);
+        if (!foundKey) { await reply("❌ Invalid or inactive key."); break; }
+        initUserDB(sender, pushname);
+        const dbRed = loadDB();
+        const uRed = dbRed.users[sender];
+        if (!Array.isArray(uRed.redeemedKeys)) uRed.redeemedKeys = [];
+        if (uRed.redeemedKeys.includes(keyInput)) {
+          await reply("❌ You have already redeemed this key.");
+          break;
+        }
+        uRed.redeemedKeys.push(keyInput);
+        uRed.money = (uRed.money || 0) + 500;
+        saveDB(dbRed);
+        await replyChannel(
+          `✅ *Key Redeemed!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🔑 Key: \`${keyInput}\`\n` +
+          `💰 Reward: *+500 coins*\n` +
+          `💳 Balance: *${uRed.money} coins*`
+        );
+        break;
+      }
+
+      case "setpp": {
+        if (!isOwner(senderJid, settings)) { await reply("❌ Owner only."); break; }
+        try {
+          let imgBuf;
+          const quotedCtx = msg.message?.extendedTextMessage?.contextInfo;
+          if (quotedCtx?.quotedMessage?.imageMessage) {
+            const fakeMsg = {
+              message: quotedCtx.quotedMessage,
+              key: { remoteJid: jid, id: quotedCtx.stanzaId, fromMe: false, participant: quotedCtx.participant },
+            };
+            imgBuf = await downloadMediaMessage(fakeMsg, "buffer", {});
+          } else if (msg.message?.imageMessage) {
+            imgBuf = await downloadMediaMessage(msg, "buffer", {});
+          }
+          if (!imgBuf) { await reply("❌ Send or quote an image to set as the bot's profile picture."); break; }
+          await sock.updateProfilePicture(sock.user.id, imgBuf);
+          await reply("✅ Bot profile picture updated!");
+        } catch (e) {
+          await reply(`❌ Failed to update profile picture: ${e.message}`);
+        }
+        break;
+      }
 
       // ── Search (free APIs — no key needed) ───────────────────────────────────
 
