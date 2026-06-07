@@ -113,6 +113,12 @@ let reconnectTimer = null;
 let messageHandler = null; // FIX: Track event listener to prevent duplicates
 let _starting = false;    // guard: prevent concurrent startBot() calls
 
+// ── Anti-delete message cache ─────────────────────────────────────────────────
+// Stores recent messages so they can be re-sent if deleted.
+// Keyed by msgId. Capped at 500 entries (FIFO) to avoid unbounded memory growth.
+const MSG_CACHE_MAX = 500;
+const msgCache = new Map(); // msgId → { jid, sender, message, timestamp }
+
 /**
  * Extract plain text from any message type Baileys sends.
  * FIX: added normalTextMessage support (used by newer WhatsApp clients)
@@ -375,6 +381,38 @@ async function _startBotImpl() {
     (update) => participantsUpdate(sock, update)
   );
 
+  // ── Anti-delete: re-send deleted messages if feature is enabled ────────
+  sock.ev.on("messages.delete", async (item) => {
+    try {
+      const settings = loadSettings();
+      if (!settings.antidelete) return;
+
+      // item can be { keys: MessageKey[] } or a single MessageKey
+      const keys = Array.isArray(item?.keys) ? item.keys : (item?.keys ? [item.keys] : []);
+
+      for (const key of keys) {
+        const cached = msgCache.get(key.id);
+        if (!cached) continue;                         // message wasn't cached (too old / not seen)
+        if (cached.jid !== key.remoteJid) continue;   // safety check
+
+        const senderNum = cached.sender.split("@")[0];
+
+        // Re-send to the same chat
+        await sock.sendMessage(cached.jid, {
+          text: `🗑 *Deleted message from @${senderNum}:*`,
+          contextInfo: { mentionedJid: [cached.sender] },
+        }).catch(() => {});
+
+        // Forward the original message content
+        const fakeMsg = { key: { remoteJid: cached.jid, id: key.id, fromMe: false, participant: cached.sender }, message: cached.message };
+        await sock.sendMessage(cached.jid, { forward: fakeMsg }, {}).catch(() => {});
+
+        log.info(`Anti-delete: re-sent deleted msg ${key.id?.slice(0, 8)} from ${senderNum}`);
+      }
+    } catch (err) {
+      logger.error({ err }, "[antidelete] messages.delete handler error");
+    }
+  });
 
   // FIX: Remove old listener before adding new one to prevent duplicates
   if (messageHandler) {
@@ -406,6 +444,20 @@ async function _startBotImpl() {
       const msgTypes = msg.message ? Object.keys(msg.message) : [];
       const msgFrom  = msg.key.remoteJid?.split("@")[0] ?? "?";
       log.msg(msgFrom, msgTypes[0] ?? "unknown", extractText(msg));
+
+      // ── Anti-delete cache: store every incoming message ───────────────────
+      if (msg.key?.id && msg.message && msg.key.remoteJid) {
+        if (msgCache.size >= MSG_CACHE_MAX) {
+          // Evict oldest entry (Maps preserve insertion order)
+          msgCache.delete(msgCache.keys().next().value);
+        }
+        msgCache.set(msg.key.id, {
+          jid:       msg.key.remoteJid,
+          sender:    msg.key.participant ?? msg.key.remoteJid,
+          message:   msg.message,
+          timestamp: Date.now(),
+        });
+      }
 
       if (msg.key.fromMe) {
         // Linked-device bot: owner's own typing also arrives as fromMe.
