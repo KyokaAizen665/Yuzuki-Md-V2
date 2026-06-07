@@ -1,3 +1,21 @@
+// ── Auto-install missing npm packages ─────────────────────────────────────────
+// Uses only Node builtins (child_process, fs) — always available.
+// Runs npm install if any key dependency is missing so the panel never crashes
+// on a missing package after git pull.
+import { execSync }   from "child_process";
+import { existsSync } from "fs";
+
+const _KEY_PKGS = ["chalk", "pino", "axios", "dotenv", "pino"];
+if (_KEY_PKGS.some(p => !existsSync(`./node_modules/${p}`))) {
+  console.log("[*] Missing packages detected — running npm install...");
+  try {
+    execSync("npm install --no-audit --no-fund --loglevel=error", { stdio: "inherit" });
+    console.log("[+] Dependencies installed successfully.\n");
+  } catch (e) {
+    console.error("[!] npm install encountered errors (bot will still try to start):", e.message);
+  }
+}
+
 // Load .env if available (graceful — panels inject vars directly, no .env needed)
 try { await import("dotenv/config"); } catch {}
 
