@@ -98,10 +98,13 @@ export const CATEGORIES = {
     icon: "👤",
     title: "𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐌𝐞𝐧𝐮",
     commands: [
-      "pp", "setpp", "bio",
-      "setbio", "reg", "rank",
-      "xp", "leaderboard", "badge",
-      "vcard", "gift", "redeem",
+      "reg", "rank", "xp",
+      "bal", "daily", "work",
+      "mine", "dungeon", "heal",
+      "deposit", "withdraw", "transfer",
+      "leaderboard", "top", "badge",
+      "bio", "setbio", "gift",
+      "redeem", "pp", "setpp",
     ],
   },
   maker: {
