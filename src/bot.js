@@ -342,7 +342,6 @@ async function _startBotImpl() {
           weekday: "short", month: "short", day: "numeric",
           hour: "2-digit", minute: "2-digit", second: "2-digit",
         });
-        //Next upgrage add contextInfo to this message for a thumbnail (small)
         sock.sendMessage(ownerJid, {
           text:
             `⚡ *Yuzuki MD is now online!*\n` +
@@ -354,6 +353,16 @@ async function _startBotImpl() {
             `🕐 *Time:* ${now}\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `_Type ${startupCfg.prefix ?? "."}menu or .allmenu to get started_`,
+          contextInfo: {
+            externalAdReply: {
+              title: botName,
+              body: `✅ Online  •  ${state.phoneNumber ?? ""}`,
+              thumbnailUrl: "https://qu.ax/RYgoy",
+              mediaType: 1,
+              renderLargerThumbnail: false,
+              sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+            },
+          },
         }).catch(() => {}); // silent if owner hasn't messaged bot yet
       }
     }
