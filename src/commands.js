@@ -121,6 +121,7 @@ const OWNER_COMMANDS = new Set([
   "addkey","delkey",
   "addcase","delcase","editcase",
   "push","update","changelog",
+  "givexp","addcoins","resetprofile",
 ]);
 
 export async function handleCommand({ sock, msg, command, args }) {
@@ -1986,6 +1987,335 @@ break;
         } catch (e) {
           await reply(`❌ Failed to update profile picture: ${e.message}`);
         }
+        break;
+      }
+
+      // ── Profile Engine ───────────────────────────────────────────────────────
+
+      case "daily": {
+        initUserDB(sender, pushname);
+        const dbD = loadDB();
+        const uD = dbD.users[sender];
+        if (!uD.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        const dailyNow = Date.now();
+        const dailyCool = 24 * 60 * 60 * 1000;
+        if (dailyNow - (uD.lastdaily || 0) < dailyCool) {
+          const rem = dailyCool - (dailyNow - (uD.lastdaily || 0));
+          const h = Math.floor(rem / 3600000);
+          const m = Math.floor((rem % 3600000) / 60000);
+          await reply(`⏳ Daily already claimed!\n\n🕐 Come back in *${h}h ${m}m*.`);
+          break;
+        }
+        const dailyCoins = Math.floor(Math.random() * 101) + 50;
+        uD.lastdaily = dailyNow;
+        uD.money = (uD.money || 0) + dailyCoins;
+        uD.exp = (uD.exp || 0) + 10;
+        while (uD.exp >= (uD.level + 1) * 100) { uD.exp -= (uD.level + 1) * 100; uD.level++; }
+        saveDB(dbD);
+        await replyChannel(
+          `🎁 *Daily Reward Claimed!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `💰 Coins: *+${dailyCoins}*\n` +
+          `✨ XP: *+10*\n` +
+          `💳 Balance: *${uD.money} coins*\n\n` +
+          `_Come back in 24 hours for more!_`
+        );
+        break;
+      }
+
+      case "bal":
+      case "balance": {
+        initUserDB(sender, pushname);
+        const dbBal = loadDB();
+        const uBal = dbBal.users[sender];
+        if (!uBal.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        await replyChannel(
+          `💳 *Balance — ${uBal.name || pushname}*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `👛 Wallet: *${uBal.money || 0} coins*\n` +
+          `🏦 Bank:   *${uBal.bank || 0} coins*\n` +
+          `💎 Total:  *${(uBal.money || 0) + (uBal.bank || 0)} coins*`
+        );
+        break;
+      }
+
+      case "deposit": {
+        const depAmt = parseInt(args[0]);
+        if (!depAmt || depAmt <= 0) { await reply(`Usage: ${prefix}deposit <amount>`); break; }
+        initUserDB(sender, pushname);
+        const dbDep = loadDB();
+        const uDep = dbDep.users[sender];
+        if (!uDep.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        if ((uDep.money || 0) < depAmt) { await reply(`❌ Not enough coins.\n💳 Wallet: *${uDep.money || 0}*`); break; }
+        uDep.money -= depAmt;
+        uDep.bank = (uDep.bank || 0) + depAmt;
+        saveDB(dbDep);
+        await replyChannel(
+          `🏦 *Deposit Successful*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📥 Deposited: *${depAmt} coins*\n` +
+          `👛 Wallet: *${uDep.money}*\n` +
+          `🏦 Bank: *${uDep.bank}*`
+        );
+        break;
+      }
+
+      case "withdraw": {
+        const wdAmt = parseInt(args[0]);
+        if (!wdAmt || wdAmt <= 0) { await reply(`Usage: ${prefix}withdraw <amount>`); break; }
+        initUserDB(sender, pushname);
+        const dbWd = loadDB();
+        const uWd = dbWd.users[sender];
+        if (!uWd.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        if ((uWd.bank || 0) < wdAmt) { await reply(`❌ Not enough in bank.\n🏦 Bank: *${uWd.bank || 0}*`); break; }
+        uWd.bank -= wdAmt;
+        uWd.money = (uWd.money || 0) + wdAmt;
+        saveDB(dbWd);
+        await replyChannel(
+          `🏦 *Withdrawal Successful*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `📤 Withdrawn: *${wdAmt} coins*\n` +
+          `👛 Wallet: *${uWd.money}*\n` +
+          `🏦 Bank: *${uWd.bank}*`
+        );
+        break;
+      }
+
+      case "transfer": {
+        const trMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+        const trTarget = trMentioned[0];
+        const trAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
+        if (!trTarget) { await reply(`Usage: ${prefix}transfer @user <amount>`); break; }
+        if (!trAmt || trAmt <= 0) { await reply(`❌ Enter a valid amount.`); break; }
+        if (trTarget === sender) { await reply(`❌ You can't transfer to yourself.`); break; }
+        initUserDB(sender, pushname);
+        initUserDB(trTarget, "User");
+        const dbTr = loadDB();
+        const uTrFrom = dbTr.users[sender];
+        const uTrTo = dbTr.users[trTarget];
+        if (!uTrFrom.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        if ((uTrFrom.money || 0) < trAmt) { await reply(`❌ Not enough coins.\n💳 Wallet: *${uTrFrom.money || 0}*`); break; }
+        uTrFrom.money -= trAmt;
+        uTrTo.money = (uTrTo.money || 0) + trAmt;
+        saveDB(dbTr);
+        await sock.sendMessage(jid, {
+          text:
+            `💸 *Transfer Sent!*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `👤 To: @${trTarget.split("@")[0].split(":")[0]}\n` +
+            `💰 Amount: *${trAmt} coins*\n` +
+            `💳 Your wallet: *${uTrFrom.money}*`,
+          mentions: [trTarget],
+        }, { quoted: channelQuote || msg });
+        break;
+      }
+
+      case "mine": {
+        initUserDB(sender, pushname);
+        const dbMine = loadDB();
+        const uMine = dbMine.users[sender];
+        if (!uMine.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        const mineNow = Date.now();
+        const mineCool = 4 * 60 * 60 * 1000;
+        if (mineNow - (uMine.lastmining || 0) < mineCool) {
+          const rem = mineCool - (mineNow - (uMine.lastmining || 0));
+          const h = Math.floor(rem / 3600000);
+          const m = Math.floor((rem % 3600000) / 60000);
+          await reply(`⛏️ Already mined!\n\n🕐 Next mine in *${h}h ${m}m*.`);
+          break;
+        }
+        const mineCoins = Math.floor(Math.random() * 61) + 20;
+        const mineXP = Math.floor(Math.random() * 11) + 5;
+        uMine.lastmining = mineNow;
+        uMine.money = (uMine.money || 0) + mineCoins;
+        uMine.exp = (uMine.exp || 0) + mineXP;
+        while (uMine.exp >= (uMine.level + 1) * 100) { uMine.exp -= (uMine.level + 1) * 100; uMine.level++; }
+        saveDB(dbMine);
+        const ORES = ["⛏️ Iron","🪨 Stone","💎 Diamond","🥇 Gold","🔮 Crystal","🌑 Coal"];
+        const ore = ORES[Math.floor(Math.random() * ORES.length)];
+        await replyChannel(
+          `⛏️ *Mining Complete!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🪨 Found: *${ore}*\n` +
+          `💰 Coins: *+${mineCoins}*\n` +
+          `✨ XP: *+${mineXP}*\n` +
+          `💳 Balance: *${uMine.money}*\n\n` +
+          `_Next mine available in 4 hours._`
+        );
+        break;
+      }
+
+      case "work": {
+        initUserDB(sender, pushname);
+        const dbWork = loadDB();
+        const uWork = dbWork.users[sender];
+        if (!uWork.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        const workNow = Date.now();
+        const workCool = 60 * 60 * 1000;
+        if (workNow - (uWork.lastwork || 0) < workCool) {
+          const rem = workCool - (workNow - (uWork.lastwork || 0));
+          const m = Math.floor(rem / 60000);
+          await reply(`💼 Already worked!\n\n🕐 Next shift in *${m} min*.`);
+          break;
+        }
+        const workCoins = Math.floor(Math.random() * 31) + 10;
+        const workXP = Math.floor(Math.random() * 6) + 3;
+        uWork.lastwork = workNow;
+        uWork.money = (uWork.money || 0) + workCoins;
+        uWork.exp = (uWork.exp || 0) + workXP;
+        while (uWork.exp >= (uWork.level + 1) * 100) { uWork.exp -= (uWork.level + 1) * 100; uWork.level++; }
+        saveDB(dbWork);
+        const JOBS = ["🧹 cleaned offices","👨‍🍳 cooked meals","📦 delivered packages","💻 fixed bugs","🎨 designed a logo","🔧 repaired equipment","📚 tutored students","🚗 drove a taxi"];
+        const job = JOBS[Math.floor(Math.random() * JOBS.length)];
+        await replyChannel(
+          `💼 *Work Complete!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `🏷️ You ${job}\n` +
+          `💰 Earned: *${workCoins} coins*\n` +
+          `✨ XP: *+${workXP}*\n` +
+          `💳 Balance: *${uWork.money}*\n\n` +
+          `_Next shift in 1 hour._`
+        );
+        break;
+      }
+
+      case "heal": {
+        initUserDB(sender, pushname);
+        const dbHeal = loadDB();
+        const uHeal = dbHeal.users[sender];
+        if (!uHeal.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        if ((uHeal.health || 100) >= 100) { await reply(`❤️ Already at full health *(100 HP)*!`); break; }
+        const healCost = 50;
+        if ((uHeal.money || 0) < healCost) {
+          await reply(`❌ Not enough coins.\n💰 Healing costs *${healCost} coins*.\n💳 You have: *${uHeal.money || 0}*`);
+          break;
+        }
+        const healed = Math.min(50, 100 - (uHeal.health || 0));
+        uHeal.money -= healCost;
+        uHeal.health = Math.min(100, (uHeal.health || 0) + healed);
+        saveDB(dbHeal);
+        await replyChannel(
+          `❤️ *Healed!*\n` +
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `💊 HP restored: *+${healed}*\n` +
+          `❤️ HP: *${uHeal.health}/100*\n` +
+          `💰 Cost: *-${healCost} coins*\n` +
+          `💳 Balance: *${uHeal.money}*`
+        );
+        break;
+      }
+
+      case "dungeon": {
+        initUserDB(sender, pushname);
+        const dbDun = loadDB();
+        const uDun = dbDun.users[sender];
+        if (!uDun.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
+        const dunNow = Date.now();
+        const dunCool = 6 * 60 * 60 * 1000;
+        if (dunNow - (uDun.lastdungeon || 0) < dunCool) {
+          const rem = dunCool - (dunNow - (uDun.lastdungeon || 0));
+          const h = Math.floor(rem / 3600000);
+          const m = Math.floor((rem % 3600000) / 60000);
+          await reply(`⚔️ Still recovering!\n\n🕐 Next dungeon in *${h}h ${m}m*.`);
+          break;
+        }
+        const ENEMIES = [
+          { name: "🐺 Wolf",      dmg: 15, reward: 40,  xp: 20 },
+          { name: "🧟 Zombie",    dmg: 20, reward: 60,  xp: 30 },
+          { name: "🐉 Dragon",    dmg: 35, reward: 100, xp: 50 },
+          { name: "🧙 Dark Mage", dmg: 25, reward: 80,  xp: 40 },
+          { name: "💀 Skeleton",  dmg: 18, reward: 50,  xp: 25 },
+        ];
+        const enemy = ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+        const win = (uDun.health || 100) > enemy.dmg || Math.random() > 0.35;
+        uDun.lastdungeon = dunNow;
+        if (win) {
+          uDun.money = (uDun.money || 0) + enemy.reward;
+          uDun.exp = (uDun.exp || 0) + enemy.xp;
+          while (uDun.exp >= (uDun.level + 1) * 100) { uDun.exp -= (uDun.level + 1) * 100; uDun.level++; }
+          uDun.health = Math.max(1, (uDun.health || 100) - Math.floor(enemy.dmg / 2));
+          saveDB(dbDun);
+          await replyChannel(
+            `⚔️ *Victory!*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `👹 Defeated: *${enemy.name}*\n` +
+            `💰 Reward: *+${enemy.reward} coins*\n` +
+            `✨ XP: *+${enemy.xp}*\n` +
+            `❤️ HP: *${uDun.health}/100* (-${Math.floor(enemy.dmg / 2)})\n` +
+            `💳 Balance: *${uDun.money}*\n\n` +
+            `_Next dungeon in 6 hours._`
+          );
+        } else {
+          uDun.health = Math.max(1, (uDun.health || 100) - enemy.dmg);
+          saveDB(dbDun);
+          await replyChannel(
+            `💀 *Defeated!*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `👹 *${enemy.name}* was too strong!\n` +
+            `❤️ HP: *${uDun.health}/100* (-${enemy.dmg})\n\n` +
+            `_Use *${prefix}heal* to restore HP.\nNext dungeon in 6 hours._`
+          );
+        }
+        break;
+      }
+
+      case "top": {
+        const lbTop = getLeaderboard(10);
+        if (!lbTop.length) { await reply(`No registered users yet! Use *${prefix}reg* to create a profile.`); break; }
+        const medals = ["🥇","🥈","🥉"];
+        const topRows = lbTop.map((u, i) => {
+          const icon = medals[i] ?? `${i + 1}.`;
+          return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
+        }).join("\n");
+        await replyChannel(`🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${topRows}`);
+        break;
+      }
+
+      case "givexp": {
+        const gxMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+        const gxTarget = gxMentioned[0];
+        const gxAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
+        if (!gxTarget || !gxAmt || gxAmt <= 0) { await reply(`Usage: ${prefix}givexp @user <amount>`); break; }
+        initUserDB(gxTarget, "User");
+        const dbGx = loadDB();
+        const uGx = dbGx.users[gxTarget];
+        uGx.exp = (uGx.exp || 0) + gxAmt;
+        while (uGx.exp >= (uGx.level + 1) * 100) { uGx.exp -= (uGx.level + 1) * 100; uGx.level++; }
+        saveDB(dbGx);
+        await reply(`✅ Gave *${gxAmt} XP* to @${gxTarget.split("@")[0].split(":")[0]} (now Lv.${uGx.level})`);
+        break;
+      }
+
+      case "addcoins": {
+        const acMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+        const acTarget = acMentioned[0];
+        const acAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
+        if (!acTarget || !acAmt || acAmt <= 0) { await reply(`Usage: ${prefix}addcoins @user <amount>`); break; }
+        initUserDB(acTarget, "User");
+        const dbAc = loadDB();
+        dbAc.users[acTarget].money = (dbAc.users[acTarget].money || 0) + acAmt;
+        saveDB(dbAc);
+        await reply(`✅ Added *${acAmt} coins* to @${acTarget.split("@")[0].split(":")[0]}\n💳 Balance: *${dbAc.users[acTarget].money}*`);
+        break;
+      }
+
+      case "resetprofile": {
+        const rpMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+        const rpTarget = rpMentioned[0];
+        if (!rpTarget) { await reply(`Usage: ${prefix}resetprofile @user`); break; }
+        const dbRp = loadDB();
+        if (!dbRp.users[rpTarget]) { await reply("❌ User not found in database."); break; }
+        const rpName = dbRp.users[rpTarget].name || "User";
+        const rpPremium = dbRp.users[rpTarget].premium || false;
+        dbRp.users[rpTarget] = {
+          level: 0, exp: 0, money: 0, bank: 0, health: 100,
+          limitfree: 15, limitprem: 0, limitbuy: 0,
+          lastmining: 0, lastdungeon: 0, lastwork: 0, lastdaily: 0,
+          name: rpName, registered: false, premium: rpPremium,
+          bio: "", badges: [], msgCount: 0, redeemedKeys: [],
+        };
+        saveDB(dbRp);
+        await reply(`✅ Profile of @${rpTarget.split("@")[0].split(":")[0]} has been reset.`);
         break;
       }
 
