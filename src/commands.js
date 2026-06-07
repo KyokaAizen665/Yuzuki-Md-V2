@@ -135,7 +135,9 @@ export async function handleCommand({ sock, msg, command, args }) {
     : (msg.key.participant ?? msg.key.remoteJid ?? "");
 
   const reply = async (text) => {
-    await sock.sendMessage(jid, { text }, { quoted: msg });
+    try {
+      await sock.sendMessage(jid, { text }, { quoted: msg });
+    } catch {}
   };
 
   const channelQuote = (settings.channelId && settings.channelName)
@@ -2757,7 +2759,7 @@ break;
               }
             }
           }else if(d.text){
-            const twPayload=await previewCard(`📥 *@${d.user_name}:*\n${d.text}`,{title:`@${d.user_name}`,body:d.text.slice(0,60),thumbUrl:twThumb,sourceUrl:u});
+            const twPayload=await previewCard(`📥 *@${d.user_name}:*\n${d.text||""}`,{title:`@${d.user_name||"Twitter"}`,body:(d.text||"").slice(0,60),thumbUrl:twThumb,sourceUrl:u});
             await sock.sendMessage(jid,twPayload,{quoted:msg});
           }else{await reply("❌ No media found in this tweet.");}
         }catch(e){await reply(`❌ twdl: ${e.message}`);}
@@ -3356,7 +3358,7 @@ break;
         initUserDB(sender, pushname);
         const lim = checkLimit(sender, isOwner(sender));
         if (lim === "∞") return reply("💎 You have *unlimited* limit as owner!");
-        reply(`📊 *Your Remaining Limit*\n\n💳 Daily limit: *${lim}*\n\n> Limit resets every day at midnight.`);
+        await reply(`📊 *Your Remaining Limit*\n\n💳 Daily limit: *${lim}*\n\n> Limit resets every day at midnight.`);
         break;
       }
       case "setlimit":
@@ -3364,7 +3366,7 @@ break;
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!args[0] || !args[1]) return reply(`Usage: ${prefix}setlimit <command> <cost>\nExample: ${prefix}setlimit tiktok 2`);
         setLimitCost(args[0], parseInt(args[1]) || 0);
-        reply(`✅ Set limit cost for *${args[0]}* to *${args[1]}*`);
+        await reply(`✅ Set limit cost for *${args[0]}* to *${args[1]}*`);
         break;
       }
 
@@ -3710,11 +3712,11 @@ break;
           fonts.slice(0, 10).forEach((f, i) => {
             out += `${i + 1}. *${f.name}*\n   👤 ${f.author} | 📥 ${f.downloads}\n   🔗 ${f.download}\n\n`;
           });
-          reply(out.trim());
+          await reply(out.trim());
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Dafont search failed: ${e.message}`);
+          await reply(`❌ Dafont search failed: ${e.message}`);
         }
         break;
       }
@@ -3972,7 +3974,7 @@ break;
         const k = keyMap[command];
         gc.antilink[k] = !gc.antilink[k];
         setGroupData(jid, gc);
-        reply(`${gc.antilink[k] ? "✅ Enabled" : "❌ Disabled"} *${command}* for this group.`);
+        await reply(`${gc.antilink[k] ? "✅ Enabled" : "❌ Disabled"} *${command}* for this group.`);
         break;
       }
       case "setantilink": {
@@ -3984,7 +3986,7 @@ break;
         const gc = getGroupData(jid);
         gc.antilinkAction = mode;
         setGroupData(jid, gc);
-        reply(`✅ Antilink action set to *${mode}*.`);
+        await reply(`✅ Antilink action set to *${mode}*.`);
         break;
       }
       case "addtoxic":
@@ -3995,7 +3997,7 @@ break;
         let bw = [];
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
         if (!bw.includes(text.toLowerCase())) { bw.push(text.toLowerCase()); fs.writeFileSync(bwPath, JSON.stringify(bw)); }
-        reply(`✅ Added *${text}* to bad words list.`);
+        await reply(`✅ Added *${text}* to bad words list.`);
         break;
       }
       case "deltoxic":
@@ -4007,7 +4009,7 @@ break;
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
         bw = bw.filter((w) => w !== text.toLowerCase());
         fs.writeFileSync(bwPath, JSON.stringify(bw));
-        reply(`✅ Removed *${text}* from bad words list.`);
+        await reply(`✅ Removed *${text}* from bad words list.`);
         break;
       }
       case "listtoxic":
@@ -4016,7 +4018,7 @@ break;
         const bwPath = "./data/badwords.json";
         let bw = [];
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
-        reply(bw.length ? `🚫 *Bad Words List (${bw.length}):*\n\n${bw.map((w, i) => `${i + 1}. ${w}`).join("\n")}` : "✅ Bad words list is empty.");
+        await reply(bw.length ? `🚫 *Bad Words List (${bw.length}):*\n\n${bw.map((w, i) => `${i + 1}. ${w}`).join("\n")}` : "✅ Bad words list is empty.");
         break;
       }
 
@@ -4027,7 +4029,7 @@ break;
         const gc = getGroupData(jid);
         gc.welcome = !gc.welcome;
         setGroupData(jid, gc);
-        reply(`${gc.welcome ? "✅ Welcome messages enabled." : "❌ Welcome messages disabled."}`);
+        await reply(`${gc.welcome ? "✅ Welcome messages enabled." : "❌ Welcome messages disabled."}`);
         break;
       }
       case "left": {
@@ -4036,7 +4038,7 @@ break;
         const gc = getGroupData(jid);
         gc.left = !gc.left;
         setGroupData(jid, gc);
-        reply(`${gc.left ? "✅ Leave messages enabled." : "❌ Leave messages disabled."}`);
+        await reply(`${gc.left ? "✅ Leave messages enabled." : "❌ Leave messages disabled."}`);
         break;
       }
 
@@ -4045,16 +4047,16 @@ break;
         if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!text) return reply(`📌 Usage: ${prefix}setname <new name>`);
-        try { await sock.groupUpdateSubject(jid, text); reply(`✅ Group name updated to *${text}*.`); }
-        catch (e) { reply(`❌ Failed: ${e.message}`); }
+        try { await sock.groupUpdateSubject(jid, text); await reply(`✅ Group name updated to *${text}*.`); }
+        catch (e) { await reply(`❌ Failed: ${e.message}`); }
         break;
       }
       case "setdescgc": {
         if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!text) return reply(`📌 Usage: ${prefix}setdesc <new description>`);
-        try { await sock.groupUpdateDescription(jid, text); reply(`✅ Group description updated.`); }
-        catch (e) { reply(`❌ Failed: ${e.message}`); }
+        try { await sock.groupUpdateDescription(jid, text); await reply(`✅ Group description updated.`); }
+        catch (e) { await reply(`❌ Failed: ${e.message}`); }
         break;
       }
       // ── Bot mode commands (. additions) ────────────────────
@@ -4062,7 +4064,7 @@ break;
       case "onlygroup": {
         if (!isOwner(sender)) return reply("❌ Owner only.");
         setSetting("mode", "group");
-        reply("✅ Bot switched to *Group Only* mode.");
+        await reply("✅ Bot switched to *Group Only* mode.");
         break;
       }
       case "onlypc":
@@ -4070,7 +4072,7 @@ break;
       case "onlypm": {
         if (!isOwner(sender)) return reply("❌ Owner only.");
         setSetting("mode", "private");
-        reply("✅ Bot switched to *Private Only* mode.");
+        await reply("✅ Bot switched to *Private Only* mode.");
         break;
       }
       
@@ -4241,13 +4243,13 @@ break;
             let list = `🎵 *More results for "${text}":*\n\n`;
             results.slice(1).forEach((s, i) => { list += `${i + 2}. *${s.title}* — ${s.artists}\n`; });
             list += `\n💡 Type *${prefix}saavn <exact title>* for a specific song.`;
-            reply(list);
+            await reply(list);
           }
           useLimit(sender, saavnCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Saavn failed: ${e.message}`);
+          await reply(`❌ Saavn failed: ${e.message}`);
         }
         break;
       }
@@ -4265,11 +4267,11 @@ break;
             out += `*${i+1}.* ${t.title}\n👤 ${t.artists} | 💿 ${t.album || "?"} | ⏱ ${dur}\n\n`;
           });
           out += `💡 Use *${prefix}play <title>* or *${prefix}saavn <title>* to download full songs.`;
-          reply(out.trim());
+          await reply(out.trim());
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Deezer search failed: ${e.message}`);
+          await reply(`❌ Deezer search failed: ${e.message}`);
         }
         break;
       }
