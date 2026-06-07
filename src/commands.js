@@ -3855,11 +3855,12 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         try {
           let results = [];
           let downloaded = false;
-          // Try JioSaavn first (free 320kbps, no key needed)
+
+          // ── Tier 1: JioSaavn (320kbps, no key, most reliable) ──────────
           try {
-            results = await searchSaavn(text, 5);
-            if (results.length && results[0].url) {
-              const top = results[0];
+            const saavnRes = await searchSaavn(text, 5);
+            if (saavnRes.length && saavnRes[0].url) {
+              const top = saavnRes[0];
               await sock.sendMessage(jid, {
                 audio: { url: top.url }, mimetype: "audio/mpeg",
                 contextInfo: { externalAdReply: {
@@ -3868,25 +3869,59 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
                   thumbnailUrl: top.thumbnail || "", mediaType: 1,
                 }},
               }, { quoted: msg });
+              results = saavnRes.map(s => ({ title: s.title, artists: s.artists, url: s.url }));
               downloaded = true;
             }
           } catch {}
-          // Fallback: YouTube
+
+          // ── Tier 2: YouTube search + hub.ytconvert.org converter ────────
           if (!downloaded) {
-            const ytRes = await ytSearchFn(text, 5);
-            if (!ytRes.length) throw new Error("No results found.");
-            const dl = await ytDlMp3(ytRes[0].url);
+            try {
+              const ytRes = await ytSearchFn(text, 5);
+              if (ytRes.length) {
+                const dl = await ytDlMp3(ytRes[0].url);
+                await sock.sendMessage(jid, {
+                  audio: { url: dl.downloadUrl }, mimetype: "audio/mp4",
+                  contextInfo: { externalAdReply: {
+                    title: dl.title, thumbnailUrl: dl.thumbnail || "", mediaType: 1,
+                  }},
+                }, { quoted: msg });
+                results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
+                downloaded = true;
+              }
+            } catch {}
+          }
+
+          // ── Tier 3: ytdl-core direct download (final fallback) ──────────
+          if (!downloaded) {
+            const ytRes = await ytSearchFn(text, 3);
+            if (!ytRes.length) throw new Error("No results found for that song.");
+            const info = await ytdl.getInfo(ytRes[0].url);
+            const fmt = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
+            if (!fmt) throw new Error("No audio format available.");
+            const chunks = [];
+            await new Promise((res, rej) => {
+              const s = ytdl.downloadFromInfo(info, { format: fmt });
+              s.on("data", c => chunks.push(c));
+              s.on("end", res);
+              s.on("error", rej);
+            });
+            const buf = Buffer.concat(chunks);
             await sock.sendMessage(jid, {
-              audio: { url: dl.downloadUrl }, mimetype: "audio/mp4",
+              audio: buf, mimetype: fmt.mimeType?.split(";")[0] || "audio/webm",
               contextInfo: { externalAdReply: {
-                title: dl.title, thumbnailUrl: dl.thumbnail || "", mediaType: 1,
+                title: info.videoDetails.title,
+                body: info.videoDetails.author?.name || "",
+                thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1,
               }},
             }, { quoted: msg });
             results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
             downloaded = true;
           }
-          if (!downloaded) throw new Error("No results found.");
-          // Show interactive song list for alternatives
+
+          if (!downloaded) throw new Error("All download sources failed. Try again later.");
+
+          // ── Show alternative song list ───────────────────────────────────
           if (results.length > 1) {
             const rows = results.slice(0, 5).map((s, i) => ({
               title: `${i + 1}. ${(s.title || "Unknown").slice(0, 24)}`,
@@ -3901,6 +3936,7 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
               sections: [{ title: "Results", rows }],
             }, { quoted: msg });
           }
+
           useLimit(sender, playCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
