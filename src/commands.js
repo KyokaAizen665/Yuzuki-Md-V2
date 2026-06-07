@@ -112,6 +112,17 @@ function bjVal(h){let v=0,a=0;for(const c of h){const r=c.slice(0,-1);if(r==="A"
 
   const startTime = Date.now();
 
+// ── Per-command thumbnail helper ──────────────────────────────────────────────
+// Looks for src/assets/<name>.(jpg|png|jpeg|webp). Falls back to menu_bg.jpg.
+function getThumb(name) {
+  const dir = path.dirname(MENU_BG);
+  for (const ext of ["jpg", "png", "jpeg", "webp"]) {
+    const p = path.join(dir, `${name}.${ext}`);
+    if (fs.existsSync(p)) return fs.readFileSync(p);
+  }
+  return fs.readFileSync(MENU_BG);
+}
+
 const OWNER_COMMANDS = new Set([
   "setprefix","setowner","addowner","delowner","setbotname",
   "public","self","antidelete","gconly","autoblock",
@@ -170,6 +181,17 @@ export async function handleCommand({ sock, msg, command, args }) {
       await sock.sendMessage(jid, { text }, { quoted: channelQuote });
     } catch {
       // Channel ack failed — message already sent, skip retry to prevent double reply
+    }
+  };
+
+  // replyWithThumb: send an image from src/assets/<thumbName>.(jpg|png…) with
+  // the caption as the message body. Falls back to plain text on error.
+  const replyWithThumb = async (thumbName, caption) => {
+    try {
+      const thumb = getThumb(thumbName);
+      await sock.sendMessage(jid, { image: thumb, caption }, { quoted: channelQuote || msg });
+    } catch {
+      await replyChannel(caption);
     }
   };
 
@@ -1810,7 +1832,7 @@ break;
         if (!u0.badges.includes("🌱 Newcomer")) u0.badges.push("🌱 Newcomer");
         if (!u0.bio) u0.bio = "";
         saveDB(db0);
-        await replyChannel(
+        await replyWithThumb("reg",
           `🎉 *Welcome, ${pushname}!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `✅ Profile registered!\n` +
@@ -1839,7 +1861,7 @@ break;
         const rankPos = getRankPosition(sender) ?? "—";
         const badgesR = (uR.badges || []).join(" ") || "None";
         const bioR = uR.bio || "No bio set.";
-        await replyChannel(
+        await replyWithThumb("rank",
           `👤 *${uR.name || pushname}*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🏆 Rank: *#${rankPos}*\n` +
@@ -1867,7 +1889,7 @@ break;
           const icon = medals[i] ?? `${i + 1}.`;
           return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
         }).join("\n");
-        await replyChannel(`🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${rows}`);
+        await replyWithThumb("leaderboard", `🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${rows}`);
         break;
       }
 
@@ -1929,7 +1951,7 @@ break;
         giver.money -= giftAmount;
         receiver.money = (receiver.money || 0) + giftAmount;
         saveDB(dbGift);
-        await replyChannel(
+        await replyWithThumb("gift",
           `🎁 *Gift Sent!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `👤 From: *${pushname}*\n` +
@@ -1957,7 +1979,7 @@ break;
         uRed.redeemedKeys.push(keyInput);
         uRed.money = (uRed.money || 0) + 500;
         saveDB(dbRed);
-        await replyChannel(
+        await replyWithThumb("redeem",
           `✅ *Key Redeemed!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🔑 Key: \`${keyInput}\`\n` +
@@ -2012,7 +2034,7 @@ break;
         uD.exp = (uD.exp || 0) + 10;
         while (uD.exp >= (uD.level + 1) * 100) { uD.exp -= (uD.level + 1) * 100; uD.level++; }
         saveDB(dbD);
-        await replyChannel(
+        await replyWithThumb("daily",
           `🎁 *Daily Reward Claimed!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `💰 Coins: *+${dailyCoins}*\n` +
@@ -2029,7 +2051,7 @@ break;
         const dbBal = loadDB();
         const uBal = dbBal.users[sender];
         if (!uBal.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        await replyChannel(
+        await replyWithThumb("bal",
           `💳 *Balance — ${uBal.name || pushname}*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `👛 Wallet: *${uBal.money || 0} coins*\n` +
@@ -2050,7 +2072,7 @@ break;
         uDep.money -= depAmt;
         uDep.bank = (uDep.bank || 0) + depAmt;
         saveDB(dbDep);
-        await replyChannel(
+        await replyWithThumb("deposit",
           `🏦 *Deposit Successful*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `📥 Deposited: *${depAmt} coins*\n` +
@@ -2071,7 +2093,7 @@ break;
         uWd.bank -= wdAmt;
         uWd.money = (uWd.money || 0) + wdAmt;
         saveDB(dbWd);
-        await replyChannel(
+        await replyWithThumb("withdraw",
           `🏦 *Withdrawal Successful*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `📤 Withdrawn: *${wdAmt} coins*\n` +
@@ -2099,7 +2121,8 @@ break;
         uTrTo.money = (uTrTo.money || 0) + trAmt;
         saveDB(dbTr);
         await sock.sendMessage(jid, {
-          text:
+          image: getThumb("transfer"),
+          caption:
             `💸 *Transfer Sent!*\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `👤 To: @${trTarget.split("@")[0].split(":")[0]}\n` +
@@ -2133,7 +2156,7 @@ break;
         saveDB(dbMine);
         const ORES = ["⛏️ Iron","🪨 Stone","💎 Diamond","🥇 Gold","🔮 Crystal","🌑 Coal"];
         const ore = ORES[Math.floor(Math.random() * ORES.length)];
-        await replyChannel(
+        await replyWithThumb("mine",
           `⛏️ *Mining Complete!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🪨 Found: *${ore}*\n` +
@@ -2167,7 +2190,7 @@ break;
         saveDB(dbWork);
         const JOBS = ["🧹 cleaned offices","👨‍🍳 cooked meals","📦 delivered packages","💻 fixed bugs","🎨 designed a logo","🔧 repaired equipment","📚 tutored students","🚗 drove a taxi"];
         const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-        await replyChannel(
+        await replyWithThumb("work",
           `💼 *Work Complete!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `🏷️ You ${job}\n` +
@@ -2194,7 +2217,7 @@ break;
         uHeal.money -= healCost;
         uHeal.health = Math.min(100, (uHeal.health || 0) + healed);
         saveDB(dbHeal);
-        await replyChannel(
+        await replyWithThumb("heal",
           `❤️ *Healed!*\n` +
           `━━━━━━━━━━━━━━━━━━━\n` +
           `💊 HP restored: *+${healed}*\n` +
@@ -2235,7 +2258,7 @@ break;
           while (uDun.exp >= (uDun.level + 1) * 100) { uDun.exp -= (uDun.level + 1) * 100; uDun.level++; }
           uDun.health = Math.max(1, (uDun.health || 100) - Math.floor(enemy.dmg / 2));
           saveDB(dbDun);
-          await replyChannel(
+          await replyWithThumb("dungeon",
             `⚔️ *Victory!*\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `👹 Defeated: *${enemy.name}*\n` +
@@ -2248,7 +2271,7 @@ break;
         } else {
           uDun.health = Math.max(1, (uDun.health || 100) - enemy.dmg);
           saveDB(dbDun);
-          await replyChannel(
+          await replyWithThumb("dungeon",
             `💀 *Defeated!*\n` +
             `━━━━━━━━━━━━━━━━━━━\n` +
             `👹 *${enemy.name}* was too strong!\n` +
@@ -2267,7 +2290,7 @@ break;
           const icon = medals[i] ?? `${i + 1}.`;
           return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
         }).join("\n");
-        await replyChannel(`🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${topRows}`);
+        await replyWithThumb("top", `🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${topRows}`);
         break;
       }
 
