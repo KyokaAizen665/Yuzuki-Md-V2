@@ -14,6 +14,7 @@ const DEFAULTS = {
   antidelete: false,
   autoblock: false,
   gconly: false,
+  antiviewonce: false,
   menuBgUrl: "",  // leave empty to use the bundled local image (src/assets/menu_bg.jpg)
   channelId: "120363406397452589@newsletter",
   channelName: "Yuzuki   更新",

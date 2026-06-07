@@ -776,6 +776,16 @@ break;
       break;
     }
 
+    case "antiviewonce":
+    case "antivo": {
+      const cur = loadSettings().antiviewonce ?? false;
+      setSetting("antiviewonce", !cur);
+      await reply(toggle("👁", "Anti-View-Once", !cur,
+        !cur ? "View-once photos/videos/audios will be auto-revealed" : "View-once messages are hidden again"
+      ));
+      break;
+    }
+
     case "gconly": {
       const sub = (args[0] ?? "").toLowerCase();
       const cur = loadSettings().gconly ?? false;
@@ -2058,6 +2068,50 @@ break;
         break;
       }
 
+      // ── View-once bypass — .vv / .rv / .rvo ─────────────────────────
+      case "vv":
+      case "rv":
+      case "rvo": {
+        const ctx2 = msg.message?.extendedTextMessage?.contextInfo;
+        if (!ctx2?.quotedMessage) {
+          await reply(`👁 Reply to a view-once photo, video or audio with *${prefix}${command}*`);
+          break;
+        }
+        const qm = ctx2.quotedMessage;
+        // Unwrap view-once wrapper (v1, v2, v2Extension)
+        const voInner = qm?.viewOnceMessage?.message
+                     || qm?.viewOnceMessageV2?.message
+                     || qm?.viewOnceMessageV2Extension?.message;
+        if (!voInner) {
+          await reply("❌ That message is not a view-once. Make sure you reply directly to the view-once.");
+          break;
+        }
+        try {
+          const fakeMsg = {
+            key: { remoteJid: jid, id: ctx2.stanzaId, fromMe: ctx2.fromMe ?? false, participant: ctx2.participant },
+            message: voInner,
+          };
+          const buf = await downloadMediaMessage(fakeMsg, "buffer", {});
+          const senderName = ctx2.participant
+            ? `@${ctx2.participant.split("@")[0]}`
+            : "someone";
+          const caption = `👁 *View-Once revealed*  •  _sent by ${senderName}_`;
+          if (voInner.imageMessage) {
+            await sock.sendMessage(jid, { image: buf, caption }, { quoted: msg });
+          } else if (voInner.videoMessage) {
+            await sock.sendMessage(jid, { video: buf, caption, mimetype: "video/mp4" }, { quoted: msg });
+          } else if (voInner.audioMessage) {
+            await sock.sendMessage(jid, { audio: buf, mimetype: "audio/ogg; codecs=opus", ptt: true }, { quoted: msg });
+            await reply(caption);
+          } else {
+            await reply("❌ Unsupported view-once type.");
+          }
+        } catch (e) {
+          await reply(`❌ Could not reveal: ${e.message}`);
+        }
+        break;
+      }
+
       case "tts": {
         const text3=args.join(" ").trim();if(!text3){await reply(`Usage: ${prefix}tts <text>`);break;}
         try{const ttsUrl=`https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=${encodeURIComponent(text3)}`;const resp=await fetch(ttsUrl);if(!resp.ok)throw new Error(`TTS API error: ${resp.status}`);const buf=Buffer.from(await resp.arrayBuffer());await sock.sendMessage(jid,{audio:buf,mimetype:"audio/mpeg",ptt:true},{quoted:msg});}catch(e){await reply(`❌ TTS: ${e.message}`);}
@@ -3322,16 +3376,52 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         if (mp3Lim !== "∞" && mp3Lim < mp3Cost) return reply(`❌ Not enough limit! Need *${mp3Cost}*, you have *${mp3Lim}*.`);
         await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
         try {
-          const result = await ytDlMp3(text);
-          await sock.sendMessage(jid, {
-            audio: { url: result.downloadUrl }, mimetype: "audio/mp4",
-            contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1 } },
-          }, { quoted: msg });
+          let done = false;
+          // Tier 1: JioSaavn (for song titles, not URLs)
+          if (!/^https?:\/\//i.test(text)) {
+            try {
+              const sv = await searchSaavn(text, 1);
+              if (sv.length && sv[0].url) {
+                await sock.sendMessage(jid, {
+                  audio: { url: sv[0].url }, mimetype: "audio/mpeg",
+                  contextInfo: { externalAdReply: { title: sv[0].title, body: sv[0].artists, thumbnailUrl: sv[0].thumbnail || "", mediaType: 1 } },
+                }, { quoted: msg });
+                done = true;
+              }
+            } catch {}
+          }
+          // Tier 2: hub.ytconvert.org
+          if (!done) {
+            try {
+              const result = await ytDlMp3(text);
+              await sock.sendMessage(jid, {
+                audio: { url: result.downloadUrl }, mimetype: "audio/mp4",
+                contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1 } },
+              }, { quoted: msg });
+              done = true;
+            } catch {}
+          }
+          // Tier 3: ytdl-core direct
+          if (!done) {
+            const ytRes = await ytSearchFn(text, 1);
+            if (!ytRes.length) throw new Error("No results found.");
+            const info = await ytdl.getInfo(ytRes[0].url);
+            const fmt = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
+            if (!fmt) throw new Error("No audio format available.");
+            const chunks = [];
+            await new Promise((res, rej) => { const s = ytdl.downloadFromInfo(info, { format: fmt }); s.on("data", c => chunks.push(c)); s.on("end", res); s.on("error", rej); });
+            await sock.sendMessage(jid, {
+              audio: Buffer.concat(chunks), mimetype: fmt.mimeType?.split(";")[0] || "audio/webm",
+              contextInfo: { externalAdReply: { title: info.videoDetails.title, thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1 } },
+            }, { quoted: msg });
+            done = true;
+          }
+          if (!done) throw new Error("All sources failed.");
           useLimit(sender, mp3Cost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ YouTube MP3 failed: ${e.message}`);
+          reply(`❌ MP3 failed: ${e.message}`);
         }
         break;
       }
@@ -3344,16 +3434,35 @@ await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         if (mp4Lim !== "∞" && mp4Lim < mp4Cost) return reply(`❌ Not enough limit! Need *${mp4Cost}*, you have *${mp4Lim}*.`);
         await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
         try {
-          const result = await ytDlMp4(text, args[1] || "720");
-          await sock.sendMessage(jid, {
-            video: { url: result.downloadUrl },
-            caption: `🎬 *${result.title}*`,
-          }, { quoted: msg });
+          let done = false;
+          // Tier 1: hub.ytconvert.org
+          try {
+            const result = await ytDlMp4(text, args[1] || "720");
+            await sock.sendMessage(jid, { video: { url: result.downloadUrl }, caption: `🎬 *${result.title}*` }, { quoted: msg });
+            done = true;
+          } catch {}
+          // Tier 2: ytdl-core direct
+          if (!done) {
+            const ytRes = await ytSearchFn(text, 1);
+            if (!ytRes.length) throw new Error("No results found.");
+            const info = await ytdl.getInfo(ytRes[0].url);
+            const dur = parseInt(info.videoDetails.lengthSeconds);
+            if (dur > 300) throw new Error("Video too long (max 5 min).");
+            const fmt = ytdl.chooseFormat(info.formats, { quality: "lowestvideo", filter: f => f.hasAudio && f.hasVideo });
+            if (!fmt) throw new Error("No suitable format.");
+            const chunks = [];
+            await new Promise((res, rej) => { const s = ytdl.downloadFromInfo(info, { format: fmt }); s.on("data", c => chunks.push(c)); s.on("end", res); s.on("error", rej); });
+            const buf = Buffer.concat(chunks);
+            if (buf.length > 64 * 1024 * 1024) throw new Error("File too large (>64MB).");
+            await sock.sendMessage(jid, { video: buf, caption: `🎬 *${info.videoDetails.title}*`, mimetype: "video/mp4" }, { quoted: msg });
+            done = true;
+          }
+          if (!done) throw new Error("All sources failed.");
           useLimit(sender, mp4Cost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ YouTube MP4 failed: ${e.message}`);
+          reply(`❌ MP4 failed: ${e.message}`);
         }
         break;
       }

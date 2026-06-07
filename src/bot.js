@@ -5,6 +5,7 @@ const {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
 } = _require("socketon");
 import path from "path";
 import readline from "readline";
@@ -383,6 +384,34 @@ export async function startBot() {
       if (!msg.message) {
         log.skip("no message object");
         continue;
+      }
+
+      // ── Auto view-once reveal ─────────────────────────────────────────
+      if (settings.antiviewonce && !msg.key.fromMe) {
+        const voMsg = msg.message?.viewOnceMessage?.message
+                   || msg.message?.viewOnceMessageV2?.message
+                   || msg.message?.viewOnceMessageV2Extension?.message;
+        if (voMsg) {
+          try {
+            const fakeMsg = { key: msg.key, message: voMsg };
+            const buf = await downloadMediaMessage(fakeMsg, "buffer", {});
+            const jid2 = msg.key.remoteJid;
+            const sender2 = msg.key.participant || msg.key.remoteJid;
+            const name2 = msg.pushName || sender2.split("@")[0];
+            const caption = `👁 *View-Once revealed*\n_from @${sender2.split("@")[0]}_`;
+            if (voMsg.imageMessage) {
+              await sock.sendMessage(jid2, { image: buf, caption }, { quoted: msg, mentions: [sender2] });
+            } else if (voMsg.videoMessage) {
+              await sock.sendMessage(jid2, { video: buf, caption, mimetype: "video/mp4" }, { quoted: msg, mentions: [sender2] });
+            } else if (voMsg.audioMessage) {
+              await sock.sendMessage(jid2, { audio: buf, mimetype: "audio/ogg; codecs=opus", ptt: true }, { quoted: msg });
+            }
+            log.ok(`anti-viewonce revealed from ${chalk.cyan(name2)}`);
+          } catch (err) {
+            log.err(`anti-viewonce failed: ${err.message}`);
+          }
+          continue;
+        }
       }
 
       const text = extractText(msg);
