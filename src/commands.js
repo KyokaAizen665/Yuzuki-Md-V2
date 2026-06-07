@@ -2243,23 +2243,52 @@ break;
       case "vv":
       case "rv":
       case "rvo": {
-        const ctx2 = msg.message?.extendedTextMessage?.contextInfo;
+        // Extract contextInfo from any message container WhatsApp may use.
+        // Disappearing-message chats wrap the command in ephemeralMessage,
+        // newer clients may use normalTextMessage — check all paths.
+        const msgContent = msg.message ?? {};
+        const ctx2 =
+          msgContent.extendedTextMessage?.contextInfo ??
+          msgContent.ephemeralMessage?.message?.extendedTextMessage?.contextInfo ??
+          msgContent.normalTextMessage?.contextInfo ??
+          msgContent.imageMessage?.contextInfo ??
+          msgContent.videoMessage?.contextInfo;
+
         if (!ctx2?.quotedMessage) {
           await reply(`👁 Reply to a view-once photo, video or audio with *${prefix}${command}*`);
           break;
         }
-        const qm = ctx2.quotedMessage;
-        // Unwrap view-once wrapper (v1, v2, v2Extension)
-        const voInner = qm?.viewOnceMessage?.message
-                     || qm?.viewOnceMessageV2?.message
-                     || qm?.viewOnceMessageV2Extension?.message;
+
+        // Quoted message may itself be wrapped in ephemeral or other containers.
+        const qmRaw = ctx2.quotedMessage;
+        const qm = qmRaw?.ephemeralMessage?.message ?? qmRaw;
+
+        // Try all known view-once outer wrappers (v1 / v2 / v2Extension).
+        let voInner =
+          qm?.viewOnceMessage?.message ??
+          qm?.viewOnceMessageV2?.message ??
+          qm?.viewOnceMessageV2Extension?.message;
+
+        // Fallback: newer WhatsApp versions strip the outer viewOnce wrapper when
+        // storing the quoted message, leaving just imageMessage / videoMessage /
+        // audioMessage directly in qm.  Accept those as valid view-once content.
+        if (!voInner && (qm?.imageMessage || qm?.videoMessage || qm?.audioMessage)) {
+          voInner = qm;
+        }
+
         if (!voInner) {
-          await reply("❌ That message is not a view-once. Make sure you reply directly to the view-once.");
+          await reply("❌ That message is not a view-once. Make sure you reply directly to the view-once message (not a forward or a copy).");
           break;
         }
+
         try {
           const fakeMsg = {
-            key: { remoteJid: jid, id: ctx2.stanzaId, fromMe: ctx2.fromMe ?? false, participant: ctx2.participant },
+            key: {
+              remoteJid: jid,
+              id: ctx2.stanzaId,
+              fromMe: ctx2.fromMe ?? false,
+              participant: ctx2.participant,
+            },
             message: voInner,
           };
           const buf = await downloadMediaMessage(fakeMsg, "buffer", {});
@@ -2275,7 +2304,7 @@ break;
             await sock.sendMessage(jid, { audio: buf, mimetype: "audio/ogg; codecs=opus", ptt: true }, { quoted: msg });
             await reply(caption);
           } else {
-            await reply("❌ Unsupported view-once type.");
+            await reply("❌ Unsupported view-once media type.");
           }
         } catch (e) {
           await reply(`❌ Could not reveal: ${e.message}`);
