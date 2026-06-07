@@ -62,6 +62,16 @@ function printBanner() {
 
 printBanner();
 
+// Headless env check — warn early if PHONE_NUMBER is missing and stdin is not interactive
+const _phoneEnvCheck = (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
+if (!_phoneEnvCheck && !process.stdin.isTTY) {
+  console.warn(
+    `\n⚠️  WARNING: PHONE_NUMBER is not set and stdin is not interactive.\n` +
+    `   The bot cannot pair a device without a phone number.\n` +
+    `   Set PHONE_NUMBER=<digits only> in your environment variables.\n`
+  );
+}
+
 startBot().catch((err) => {
   logger.error({ err }, "Fatal error starting bot");
   setTimeout(() => process.exit(1), 2000);
