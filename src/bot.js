@@ -11,7 +11,10 @@ import path from "path";
 import readline from "readline";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import chalk from "chalk";
+// Graceful chalk — falls back to a pass-through proxy if not installed
+function _mkChalk() { const f = (...a) => String(a[0] ?? ""); return new Proxy(f, { get: () => _mkChalk() }); }
+let chalk;
+try { chalk = (await import("chalk")).default; } catch { chalk = _mkChalk(); }
 import { loadSettings, setSetting } from "./settings.js";
 import { handleCommand } from "./commands.js";
 import { participantsUpdate } from "./lib/group.js";

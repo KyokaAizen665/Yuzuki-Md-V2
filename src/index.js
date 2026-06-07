@@ -1,6 +1,10 @@
 // Load .env if available (graceful — panels inject vars directly, no .env needed)
 try { await import("dotenv/config"); } catch {}
-import chalk from "chalk";
+
+// Graceful chalk — falls back to a pass-through proxy if not installed
+function _mkChalk() { const f = (...a) => String(a[0] ?? ""); return new Proxy(f, { get: () => _mkChalk() }); }
+let chalk;
+try { chalk = (await import("chalk")).default; } catch { chalk = _mkChalk(); }
 import "./server.js";
 import { startBot, logger } from "./bot.js";
 
