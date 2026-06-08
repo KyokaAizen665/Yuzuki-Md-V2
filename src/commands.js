@@ -256,7 +256,7 @@ export async function handleCommand({ sock, msg, command, args }) {
       const ctx2 = {
         forwardingScore: 2025, isForwarded: true,
         ...(settings.channelId && settings.channelName ? { forwardedNewsletterMessageInfo: { newsletterJid: settings.channelId, serverMessageId: null, newsletterName: settings.channelName } } : {}),
-        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://www.upload.ee/image/19419994/file.jpg", renderLargerThumbnail: false, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
+        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://www.upload.ee/image/19419994/file.jpg", renderLargerThumbnail: true, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
         quotedMessage: vq2.message, participant: vq2.key.participant, remoteJid: vq2.key.remoteJid,
       };
       try { await sock.sendMessage(jid, { image: { url: imageUrl2 }, caption: subCaption, contextInfo: ctx2 }); }
@@ -3858,6 +3858,8 @@ break;
                 body: data.music_info.author || "TikTok",
                 thumbnailUrl: data.music_info.cover || "",
                 mediaType: 1,
+                renderLargerThumbnail: true,
+showAdAttribution: false,
               },
             },
           }, { quoted: msg });
@@ -3918,7 +3920,9 @@ break;
               if (sv.length && sv[0].url) {
                 await sock.sendMessage(jid, {
                   audio: { url: sv[0].url }, mimetype: "audio/mpeg",
-                  contextInfo: { externalAdReply: { title: sv[0].title, body: sv[0].artists, thumbnailUrl: sv[0].thumbnail || "", mediaType: 1 } },
+                  contextInfo: { externalAdReply: { title: sv[0].title, body: sv[0].artists, thumbnailUrl: sv[0].thumbnail || "", mediaType: 1,
+                  renderLargerThumbnail: true,
+showAdAttribution: false, } },
                 }, { quoted: msg });
                 done = true;
               }
@@ -3930,7 +3934,9 @@ break;
               const result = await ytDlMp3(text);
               await sock.sendMessage(jid, {
                 audio: { url: result.downloadUrl }, mimetype: "audio/mp4",
-                contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1 } },
+                contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1,
+                renderLargerThumbnail: true,
+showAdAttribution: false, } },
               }, { quoted: msg });
               done = true;
             } catch {}
@@ -3946,7 +3952,9 @@ break;
             await new Promise((res, rej) => { const s = ytdl.downloadFromInfo(info, { format: fmt }); s.on("data", c => chunks.push(c)); s.on("end", res); s.on("error", rej); });
             await sock.sendMessage(jid, {
               audio: Buffer.concat(chunks), mimetype: fmt.mimeType?.split(";")[0] || "audio/webm",
-              contextInfo: { externalAdReply: { title: info.videoDetails.title, thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1 } },
+              contextInfo: { externalAdReply: { title: info.videoDetails.title, thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1,
+              renderLargerThumbnail: true,
+showAdAttribution: false, } },
             }, { quoted: msg });
             done = true;
           }
@@ -4015,7 +4023,9 @@ break;
           if (!sp.downloadUrl) throw new Error("Download URL not found.");
           await sock.sendMessage(jid, {
             audio: { url: sp.downloadUrl }, mimetype: "audio/mp4",
-            contextInfo: { externalAdReply: { title: sp.title, body: sp.artists, thumbnailUrl: sp.thumbnail || "", mediaType: 1 } },
+            contextInfo: { externalAdReply: { title: sp.title, body: sp.artists, thumbnailUrl: sp.thumbnail || "", mediaType: 1,
+            renderLargerThumbnail: true,
+showAdAttribution: false, } },
           }, { quoted: msg });
           useLimit(sender, spCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
@@ -4517,6 +4527,8 @@ break;
                   title: top.title,
                   body: `${top.artists}${top.album ? " • " + top.album : ""}`,
                   thumbnailUrl: top.thumbnail || "", mediaType: 1,
+                  renderLargerThumbnail: true,
+showAdAttribution: false,
                 }},
               }, { quoted: msg });
               results = saavnRes.map(s => ({ title: s.title, artists: s.artists, url: s.url }));
@@ -4534,6 +4546,8 @@ break;
                   audio: { url: dl.downloadUrl }, mimetype: "audio/mp4",
                   contextInfo: { externalAdReply: {
                     title: dl.title, thumbnailUrl: dl.thumbnail || "", mediaType: 1,
+                    renderLargerThumbnail: true,
+showAdAttribution: false,
                   }},
                 }, { quoted: msg });
                 results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
@@ -4563,6 +4577,8 @@ break;
                 title: info.videoDetails.title,
                 body: info.videoDetails.author?.name || "",
                 thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1,
+                renderLargerThumbnail: true,
+showAdAttribution: false,
               }},
             }, { quoted: msg });
             results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
@@ -4572,20 +4588,58 @@ break;
           if (!downloaded) throw new Error("All download sources failed. Try again later.");
 
           // ── Show alternative song list ───────────────────────────────────
-          if (results.length > 1) {
-            const rows = results.slice(0, 5).map((s, i) => ({
-              title: `${i + 1}. ${(s.title || "Unknown").slice(0, 24)}`,
-              description: `👤 ${(s.artists || "").slice(0, 30)}`,
-              rowId: `play_${i}_${Date.now()}`,
-            }));
-            await sock.sendMessage(jid, {
-              text: `🎵 *Song Results for:* _"${text}"_\n\n🎶 Playing top result automatically\n📋 Select an alternative below:`,
-              footer: "Powered by Yuzuki",
-              title: "🎵 Music Search",
-              buttonText: "🎵 Choose Song",
-              sections: [{ title: "Results", rows }],
-            }, { quoted: msg });
+if (results.length > 1) {
+  const rows = results.slice(0, 5).map((s, i) => ({
+    header: "",
+    title: `${i + 1}. ${(s.title || "Unknown").slice(0, 40)}`,
+    description: `👤 ${(s.artists || "Unknown Artist").slice(0, 50)}`,
+    id: `play_${i}`
+  }));
+
+  const msgx = generateWAMessageFromContent(jid, {
+    viewOnceMessage: {
+      message: {
+        messageContextInfo: {
+          deviceListMetadata: {},
+          deviceListMetadataVersion: 2,
+        },
+        interactiveMessage: {
+          body: {
+            text:
+              `🎵 *Song Results for:* _"${text}"_\n\n` +
+              `✅ Playing the top result automatically.\n` +
+              `📋 Choose another song below if needed.`
+          },
+          footer: {
+            text: "Powered by Yuzuki MD"
+          },
+          nativeFlowMessage: {
+            buttons: [
+              {
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                  title: "🎵 Choose Song",
+                  sections: [
+                    {
+                      title: "Search Results",
+                      rows
+                    }
+                  ]
+                })
+              }
+            ]
           }
+        }
+      }
+    }
+  }, { quoted: msg });
+
+  await sock.relayMessage(
+    jid,
+    msgx.message,
+    { messageId: msgx.key.id }
+  );
+}
 
           useLimit(sender, playCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
@@ -4637,6 +4691,8 @@ break;
               title: top.title,
               body: `${top.artists}${top.album ? " • " + top.album : ""}`,
               thumbnailUrl: top.thumbnail || "", mediaType: 1,
+              renderLargerThumbnail: true,
+showAdAttribution: false,
             }},
           }, { quoted: msg });
           if (results.length > 1) {
