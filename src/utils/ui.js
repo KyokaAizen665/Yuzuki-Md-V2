@@ -116,7 +116,7 @@ export async function previewCard(text, { title, body, thumbUrl, sourceUrl, larg
         previewType: 0,
         thumbnail,
         thumbnailUrl: thumbUrl,
-        renderLargerThumbnail: largeThumb,
+        renderLargerThumbnail: true,
         sourceUrl: sourceUrl ?? thumbUrl ?? "",
       },
     },
