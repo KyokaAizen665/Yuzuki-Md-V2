@@ -197,9 +197,9 @@ export function buildSub(botName, prefix, key) {
   if (!cat) return null;
 
   const cmdLines = cat.commands
-    .map(c => `➤ *${prefix}${c}*`)
+    .map(c => `🌸 ◦ *${prefix}${c}*`)
     .join("\n");
-
+  
   return (
 `✨━━〔 ${cat.icon} *${cat.title}* 〕━━✨
 
