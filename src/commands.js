@@ -366,7 +366,7 @@ export async function handleCommand({ sock, msg, command, args }) {
               },
               interactiveMessage: {
                 body: { text: menuCaption },
-                footer: { text: `Powered by KyōkaBotz - yuzukimd` },
+                footer: { text: `Powered by Yuzukimd` },
                 header: {
                   title: "",
                   subtitle: "",
@@ -410,7 +410,7 @@ export async function handleCommand({ sock, msg, command, args }) {
           `┈┈┈┈୨♡୧┈┈┈┈\n\n` +
           Object.values(CATEGORIES)
             .map((cat) => {
-              const cmds = cat.commands.map((cmd) => `  ➤ ${prefix}${cmd}`).join("\n");
+              const cmds = cat.commands.map((cmd) => `◦ *${prefix}${cmd}*`).join("\n");
               return `${cat.icon} *${cat.title}*\n${cmds}`;
             })
             .join("\n\n") +
@@ -555,11 +555,12 @@ export async function handleCommand({ sock, msg, command, args }) {
         ["Uptime",   uptime0],
       ], "Yuzuki MD v2 • Powered by focashi");
       const payload0 = await previewCard(text0, {
-        title:     botName0,
-        body:      `Online ✅  •  Uptime: ${uptime0}`,
-        thumbUrl:  "https://www.upload.ee/image/19419994/file.jpg",
-        sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
-      });
+  title: botName0,
+  body: `Online ✅  •  Uptime: ${uptime0}`,
+  thumbUrl: "https://www.upload.ee/image/19419994/file.jpg",
+  sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+  largeThumb: true
+});
       const channelJid0 = settings.channelId ? `${settings.channelId}@newsletter` : null;
       if (channelJid0) {
         await sock.sendMessage(channelJid0, payload0);

@@ -9,7 +9,7 @@ export const MENU_BG = fileURLToPath(new URL("./assets/menu_bg.jpg", import.meta
 
 export const CATEGORIES = {
   ai: {
-    icon: "🤖",
+    icon: "🌸",
     title: "𝐀𝐈 𝐌𝐞𝐧𝐮",
     commands: [
       "chatgpt", "gemini", "claude",
@@ -20,7 +20,7 @@ export const CATEGORIES = {
     ],
   },
   downloader: {
-    icon: "📥",
+    icon: "🌸",
     title: "𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐌𝐞𝐧𝐮",
     commands: [
       "ytmp3", "ytmp4", "mp3",
@@ -30,7 +30,7 @@ export const CATEGORIES = {
     ],
   },
   fun: {
-    icon: "🎉",
+    icon: "🌸",
     title: "𝐅𝐮𝐧 𝐌𝐞𝐧𝐮",
     commands: [
       "meme", "joke", "quote",
@@ -40,7 +40,7 @@ export const CATEGORIES = {
     ],
   },
   game: {
-    icon: "🎮",
+    icon: "🌸",
     title: "𝐆𝐚𝐦𝐞 𝐌𝐞𝐧𝐮",
     commands: [
       "ttt", "chess", "wordle",
@@ -50,7 +50,7 @@ export const CATEGORIES = {
     ],
   },
   general: {
-    icon: "📋",
+    icon: "🌸",
     title: "𝐆𝐞𝐧𝐞𝐫𝐚𝐥 𝐌𝐞𝐧𝐮",
     commands: [
       "menu", "ping", "alive",
@@ -61,7 +61,7 @@ export const CATEGORIES = {
     ],
   },
   group: {
-    icon: "👥",
+    icon: "🌸",
     title: "𝐆𝐫𝐨𝐮𝐩 𝐌𝐞𝐧𝐮",
     commands: [
       "kick", "add", "promote",
@@ -72,7 +72,7 @@ export const CATEGORIES = {
     ],
   },
   owner: {
-    icon: "👑",
+    icon: "🌸",
     title: "𝐎𝐰𝐧𝐞𝐫 𝐌𝐞𝐧𝐮",
     commands: [
       "setprefix", "setowner", "addowner",
@@ -84,7 +84,7 @@ export const CATEGORIES = {
     ],
   },
   protect: {
-    icon: "🛡️",
+    icon: "🌸",
     title: "𝐏𝐫𝐨𝐭𝐞𝐜𝐭𝐢𝐨𝐧 𝐌𝐞𝐧𝐮",
     commands: [
       "antilinkall", "antilinkgc", "antilinkch",
@@ -95,7 +95,7 @@ export const CATEGORIES = {
     ],
   },
   profile: {
-    icon: "👤",
+    icon: "🌸",
     title: "𝐏𝐫𝐨𝐟𝐢𝐥𝐞 𝐌𝐞𝐧𝐮",
     commands: [
       "reg", "rank", "xp",
@@ -108,7 +108,7 @@ export const CATEGORIES = {
     ],
   },
   maker: {
-    icon: "🎨",
+    icon: "🌸",
     title: "𝐌𝐚𝐤𝐞𝐫 𝐌𝐞𝐧𝐮",
     commands: [
       "brat", "bratvid", "qc",
@@ -117,7 +117,7 @@ export const CATEGORIES = {
     ],
   },
   search: {
-    icon: "🔍",
+    icon: "🌸",
     title: "𝐒𝐞𝐚𝐫𝐜𝐡 𝐌𝐞𝐧𝐮",
     commands: [
       "google", "ytsearch", "wiki",
@@ -128,7 +128,7 @@ export const CATEGORIES = {
     ],
   },
   tools: {
-    icon: "🛠️",
+    icon: "🌸",
     title: "𝐓𝐨𝐨𝐥𝐬 𝐌𝐞𝐧𝐮",
     commands: [
       "sticker", "toimg", "tts",
@@ -138,7 +138,7 @@ export const CATEGORIES = {
     ],
   },
   youtube: {
-    icon: "▶️",
+    icon: "🌸",
     title: "𝐘𝐨𝐮𝐓𝐮𝐛𝐞 𝐌𝐞𝐧𝐮",
     commands: [
       "ytmp3", "ytmp4", "ytsearch",
@@ -175,9 +175,9 @@ export function buildMain(botName, prefix, runtime = {}) {
 
 ╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕
 │ 𝗣𝗿𝗲𝗳𝗶𝘅    : *${prefix}*
-│ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲  : *${uptimeStr}*
-│ 👥 𝗨𝘀𝗲𝗿𝘀   : *${totalUsers}*
-│ ⚒️ 𝗙𝗲𝗮𝘁𝘂𝗿𝗲𝘀 : *${totalCmds} cmds*
+│ 𝗨𝗽𝘁𝗶𝗺𝗲  : *${uptimeStr}*
+│ 𝗨𝘀𝗲𝗿𝘀   : *${totalUsers}*
+│ 𝗙𝗲𝗮𝘁𝘂𝗿𝗲𝘀 : *${totalCmds} cmds*
 ╰─────────────────╯
 
 ✨━━〔 📂 *𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━✨
@@ -197,9 +197,9 @@ export function buildSub(botName, prefix, key) {
   if (!cat) return null;
 
   const cmdLines = cat.commands
-    .map(c => `🌸 ◦ *${prefix}${c}*`)
+    .map(c => `◦ *${prefix}${cmd}*`)
     .join("\n");
-  
+
   return (
 `✨━━〔 ${cat.icon} *${cat.title}* 〕━━✨
 
