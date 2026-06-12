@@ -26,6 +26,7 @@
     "cheerio": "^1.2.0",
     "cloudscraper": "^4.6.0",
     "colors": "^1.4.0",
+    "libsignal": "^2.0.1",
     "dotenv": "^16.6.1",
     "figlet": "^1.11.0",
     "file-type": "^16.5.4",
