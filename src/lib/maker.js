@@ -232,28 +232,22 @@ export async function toSticker(buffer, packname = "Bot", author = "Bot") {
 
 
 // ── Welcome / Goodbye card generator ─────────────────────────────────────────
-// Builds a 640×640 square card so the avatar is centred and fully visible
-// when WhatsApp renders it as an externalAdReply thumbnail (which is ~square).
-// Layout: background fill → avatar centred near the top → text below.
+// Builds a 900x300 card: background (or gradient) + circular avatar + text.
+// Used by src/lib/group.js when a member joins or leaves a group.
 
 function _drawGradientBg(ctx, W, H, type) {
   const g = ctx.createLinearGradient(0, 0, W, H);
   if (type === "welcome") {
-    g.addColorStop(0,   "#0f2027");
+    g.addColorStop(0, "#0f2027");
     g.addColorStop(0.5, "#203a43");
-    g.addColorStop(1,   "#2c5364");
+    g.addColorStop(1, "#2c5364");
   } else {
-    g.addColorStop(0,   "#200122");
+    g.addColorStop(0, "#200122");
     g.addColorStop(0.5, "#6f0000");
-    g.addColorStop(1,   "#200122");
+    g.addColorStop(1, "#200122");
   }
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-}
-
-// Helper: centre-aligned text
-function _centreText(ctx, text, y, W) {
-  ctx.fillText(text, (W - ctx.measureText(text).width) / 2, y);
 }
 
 export async function makeWelcomeCard({
@@ -265,53 +259,40 @@ export async function makeWelcomeCard({
   type = "welcome",
 } = {}) {
   const { createCanvas, loadImage } = await getCanvas();
-
-  // Square canvas — matches WhatsApp thumbnail display shape
-  const W = 640, H = 640;
+  const W = 900, H = 300;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // ── Background ────────────────────────────────────────────────────────────
+  // Background
   if (bgUrl) {
     try {
       const bg = await loadImage(bgUrl);
-      // Cover-fit: scale background to fill the square, crop edges if needed
-      const scale = Math.max(W / bg.width, H / bg.height);
-      const bw = bg.width * scale, bh = bg.height * scale;
-      ctx.drawImage(bg, (W - bw) / 2, (H - bh) / 2, bw, bh);
+      ctx.drawImage(bg, 0, 0, W, H);
     } catch {
       _drawGradientBg(ctx, W, H, type);
     }
   } else {
     _drawGradientBg(ctx, W, H, type);
   }
-
-  // Dark overlay so text is always readable
-  ctx.fillStyle = type === "welcome" ? "rgba(0,0,0,0.55)" : "rgba(10,0,0,0.62)";
+  ctx.fillStyle = type === "welcome" ? "rgba(0,0,0,0.58)" : "rgba(10,0,0,0.65)";
   ctx.fillRect(0, 0, W, H);
 
-  // ── Avatar — centred horizontally, in the top half ────────────────────────
-  const AX = W / 2;      // horizontal centre
-  const AY = 220;        // vertical centre of avatar circle
-  const RADIUS = 110;    // large so it dominates the card
+  // Avatar
+  const AX = 150, AY = 150, RADIUS = 100;
+  const ringColor = type === "welcome" ? "rgba(0,229,255,0.75)" : "rgba(255,107,107,0.75)";
 
-  const accentColor = type === "welcome" ? "#00e5ff" : "#ff6b6b";
-
-  // Outer glow ring
   ctx.beginPath();
-  ctx.arc(AX, AY, RADIUS + 8, 0, Math.PI * 2);
-  ctx.strokeStyle = type === "welcome" ? "rgba(0,229,255,0.7)" : "rgba(255,107,107,0.7)";
-  ctx.lineWidth = 5;
+  ctx.arc(AX, AY, RADIUS + 6, 0, Math.PI * 2);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 4;
   ctx.stroke();
 
-  // White inner ring
   ctx.beginPath();
-  ctx.arc(AX, AY, RADIUS + 3, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.arc(AX, AY, RADIUS + 2, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Clipped avatar circle
   ctx.save();
   ctx.beginPath();
   ctx.arc(AX, AY, RADIUS, 0, Math.PI * 2);
@@ -320,59 +301,51 @@ export async function makeWelcomeCard({
     const avatar = await loadImage(avatarUrl ?? "");
     ctx.drawImage(avatar, AX - RADIUS, AY - RADIUS, RADIUS * 2, RADIUS * 2);
   } catch {
-    // Silhouette placeholder
     const ag = ctx.createRadialGradient(AX, AY - 20, 5, AX, AY, RADIUS);
     ag.addColorStop(0, "#5a7bff");
     ag.addColorStop(1, "#1a2a6c");
     ctx.fillStyle = ag;
     ctx.fillRect(AX - RADIUS, AY - RADIUS, RADIUS * 2, RADIUS * 2);
     ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.beginPath(); ctx.arc(AX, AY - 34, 40, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(AX, AY + 80, 68, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(AX, AY - 28, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(AX, AY + 72, 58, Math.PI, 0); ctx.fill();
   }
   ctx.restore();
 
-  // ── Text — centred below the avatar ──────────────────────────────────────
-  const label    = type === "welcome" ? "✦  WELCOME  ✦" : "✦  GOODBYE  ✦";
+  // Text
+  const TX = 290;
+  const label    = type === "welcome" ? "\u2736  WELCOME  \u2736" : "\u2736  GOODBYE  \u2736";
+  const labelClr = type === "welcome" ? "#00e5ff" : "#ff6b6b";
 
-  // Label
-  ctx.font = `bold 38px SFUI, Arial`;
-  ctx.fillStyle   = accentColor;
-  ctx.shadowColor = accentColor;
-  ctx.shadowBlur  = 16;
-  _centreText(ctx, label, 380, W);
+  ctx.font = `bold 36px SFUI, Arial`;
+  ctx.fillStyle   = labelClr;
+  ctx.shadowColor = labelClr;
+  ctx.shadowBlur  = 14;
+  ctx.fillText(label, TX, 78);
 
-  // Name
   ctx.shadowBlur  = 6;
-  ctx.shadowColor = "rgba(0,0,0,0.9)";
-  ctx.font = `bold 32px SFUI, Arial`;
+  ctx.shadowColor = "rgba(0,0,0,0.8)";
+  ctx.font = `bold 30px SFUI, Arial`;
   ctx.fillStyle = "#ffffff";
-  const displayName = name.length > 24 ? name.slice(0, 24) + "…" : name;
-  _centreText(ctx, displayName, 428, W);
+  const displayName = name.length > 22 ? name.slice(0, 22) + "..." : name;
+  ctx.fillText(displayName, TX, 128);
 
-  // Divider line
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
   ctx.lineWidth = 1;
-  const lineY = 448;
-  ctx.beginPath();
-  ctx.moveTo(W * 0.15, lineY);
-  ctx.lineTo(W * 0.85, lineY);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(TX, 144); ctx.lineTo(W - 30, 144); ctx.stroke();
 
-  // Group name
   ctx.font = `22px SFUI, Arial`;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  const dispGroup = groupName.length > 30 ? groupName.slice(0, 30) + "…" : groupName;
-  _centreText(ctx, "⚡ " + dispGroup, 488, W);
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  const dispGroup = groupName.length > 32 ? groupName.slice(0, 32) + "..." : groupName;
+  ctx.fillText("Group: " + dispGroup, TX, 182);
 
-  // Member count
   ctx.font = `20px SFUI, Arial`;
-  ctx.fillStyle = "rgba(180,210,255,0.72)";
+  ctx.fillStyle = "rgba(180,210,255,0.68)";
   const memberText = type === "welcome"
-    ? "👥 Member #" + memberCount
-    : "👥 " + memberCount + " members remaining";
-  _centreText(ctx, memberText, 528, W);
+    ? "Member #" + memberCount
+    : memberCount + " members remaining";
+  ctx.fillText(memberText, TX, 222);
 
   ctx.shadowBlur = 0;
   return canvas.toBuffer("image/png");

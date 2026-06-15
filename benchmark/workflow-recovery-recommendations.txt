@@ -1,0 +1,139 @@
+WORKFLOW ENGINE RECOVERY RECOMMENDATIONS
+Generated: 2026-06-13T17:44:24.958Z
+══════════════════════════════════════════════════════════════════════
+
+Priority order: CRITICAL > HIGH > MEDIUM > LOW
+
+══════════════════════════════════════════════════════════════════════
+[CRITICAL — Apply before next production deploy]
+══════════════════════════════════════════════════════════════════════
+
+REC-01: Fix retryCount reset in WorkflowSession.touch()
+  File  : src/workflows/sessions.js
+  Change: Remove `this.retryCount = 0;` from touch().
+  Why   : The maxRetries auto-cancel guard is completely non-functional.
+          A user sending 1000 wrong inputs will never get auto-cancelled;
+          the session lives until timeout (90 s for play). This is a DoS
+          vector in group chats where malicious users can keep sessions open.
+  Patch:
+    // WorkflowSession.touch() — BEFORE
+    touch() {
+      this.lastActivity = Date.now();
+      this.retryCount = 0;          // ← REMOVE THIS LINE
+    }
+
+    // WorkflowSession.touch() — AFTER
+    touch() {
+      this.lastActivity = Date.now();
+      // retryCount intentionally NOT reset here.
+      // Only _enterStep() resets it (on step transition).
+    }
+
+REC-02: Add per-step timeout to AgentTaskQueue
+  File  : src/agent/queue.js
+  Change: Wrap step.fn() calls with a 30-second AbortController timeout.
+  Why   : Download steps can hang indefinitely, blocking queue concurrency
+          slots and making the bot unresponsive to all queued users.
+  Patch (in _dispatch, inside the step loop):
+    const STEP_TIMEOUT_MS = 30_000;
+    const result = await Promise.race([
+      step.fn(job.context),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('Step timeout after 30s')), STEP_TIMEOUT_MS)
+      ),
+    ]);
+
+══════════════════════════════════════════════════════════════════════
+[HIGH — Apply within 1 sprint]
+══════════════════════════════════════════════════════════════════════
+
+REC-03: Emit user-facing message on enter() throw
+  File  : src/workflows/manager.js — _enterStep() catch block
+  Change: After `await this.cancel(session.jid, 'enter_error', ctx)`,
+          also call `ctx.sock?.sendMessage(session.jid, { text: "⚠️ Something went wrong. Please try again." })`.
+  Why   : Currently users see nothing if the search or download step crashes.
+
+REC-04: Fix routeInput() to end game on onMove() exception
+  File  : src/games/engine.js — routeInput() catch block
+  Change: In the catch block, call `await this.endGame(jid, { cancelled: true }, ctx)`
+          and send a "⚠️ Game error — session ended" message.
+  Why   : A crashing game plugin leaves users permanently stuck in the game
+          session until the 10-min idle timeout expires.
+
+REC-05: Add per-JID concurrency cap to TaskQueue
+  File  : src/agent/queue.js
+  Change: Add `maxConcurrentPerJid` option (default 1). In _dispatch(),
+          count running jobs for the job's JID before starting.
+  Why   : Without this, a user can queue 10 simultaneous downloads,
+          exhausting network bandwidth and CPU.
+
+══════════════════════════════════════════════════════════════════════
+[MEDIUM — Apply in next maintenance window]
+══════════════════════════════════════════════════════════════════════
+
+REC-06: Persist session state across restarts
+  Files : src/workflows/sessions.js, src/games/sessions.js
+  Change: On SIGTERM/SIGINT, serialize all active sessions to a JSON file
+          (or Redis). On startup, restore sessions and re-enter current step.
+  Why   : All active multi-step interactions are silently lost on restart.
+          Users mid-download or mid-game must start over with no feedback.
+  Approach:
+    1. Add sessionStore.exportJSON() / importJSON() methods.
+    2. On shutdown: write to /tmp/sessions.json (or Redis SET).
+    3. On startup: load + call workflowManager.start(jid, name, restoredState)
+       which safely re-enters the first step's enter().
+
+REC-07: Add per-turn timeout to GamesEngine
+  File  : src/games/engine.js
+  Change: Add a per-turn setTimeout in routeInput(). If the active player
+          has not moved within `def.turnTimeout` ms, auto-call endGame()
+          with the idle player as the loser (or a draw).
+  Why   : A disconnected opponent in a 2-player game leaves the other player
+          waiting with no recourse for 10 minutes.
+
+REC-08: Send brief confirmation when workflow is silently cancelled
+  File  : src/workflows/manager.js — _silentCancel()
+  Change: Optionally send a brief "⚡ Previous action cancelled." reaction
+          so users know their workflow was cleared.
+  Why   : Without this, users who send a new command think the previous
+          workflow is still pending.
+
+══════════════════════════════════════════════════════════════════════
+[LOW — Backlog]
+══════════════════════════════════════════════════════════════════════
+
+REC-09: Fix SessionMemory.has() to use Map.has() directly
+  File  : src/agent/memory.js
+  Change: `has(jid, key) { return this._getAlive(jid)?.vars.has(key) ?? false; }`
+  Why   : Current implementation returns false for keys set to undefined.
+
+REC-10: Add AbortSignal to TaskQueue steps for mid-step cancellation
+  File  : src/agent/queue.js
+  Change: Create an AbortController per job. Pass `ctx._abortSignal`.
+          Propagate to fetch() calls in download workflows.
+  Why   : Cancelling a job does not stop in-flight HTTP requests.
+
+REC-11: Add multi-group workflow isolation check
+  File  : src/workflows/manager.js
+  Change: Validate that group JIDs and private JIDs are always kept separate
+          in sessionStore (they are, by JID key — this is informational).
+  Why   : Confirm no cross-group contamination is possible by construction.
+
+══════════════════════════════════════════════════════════════════════
+MONITORING RECOMMENDATIONS
+══════════════════════════════════════════════════════════════════════
+
+  1. Track `sessionStore.size` as a metric — alert if > 50 concurrent WF sessions
+     (indicates stuck sessions or a spam attack).
+
+  2. Track `taskQueue.size` — alert if growing unboundedly (step timeout fires
+     auto-prune after 10 min, but steps that hang prevent this).
+
+  3. Log workflow.retryCount at each retry. If max_retries events are never
+     seen in logs after REC-01 is applied, the fix is working.
+
+  4. Alert on any `[Workflow] Step ... enter error:` or `onMove error` log lines
+     in production — these indicate game/plugin code bugs.
+
+  5. Instrument gamesEngine with session start/end counters by gameId to detect
+     abandoned sessions and tune the 10-min idle timeout per game type.

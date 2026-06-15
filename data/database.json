@@ -1,0 +1,46 @@
+{
+  "users": {
+    "p1@s": {
+      "level": 1,
+      "exp": 100,
+      "money": 200,
+      "bank": 0,
+      "health": 100,
+      "limitfree": 15,
+      "limitprem": 0,
+      "limitbuy": 0,
+      "lastmining": 0,
+      "lastdungeon": 0,
+      "name": "User",
+      "registered": false,
+      "premium": false,
+      "bio": "",
+      "badges": [],
+      "msgCount": 2,
+      "redeemedKeys": []
+    },
+    "p@s": {
+      "level": 1,
+      "exp": 100,
+      "money": 200,
+      "bank": 0,
+      "health": 100,
+      "limitfree": 15,
+      "limitprem": 0,
+      "limitbuy": 0,
+      "lastmining": 0,
+      "lastdungeon": 0,
+      "name": "User",
+      "registered": false,
+      "premium": false,
+      "bio": "",
+      "badges": [],
+      "msgCount": 2,
+      "redeemedKeys": []
+    }
+  },
+  "settings": {
+    "cmdLimit": {},
+    "lastResetLimit": null
+  }
+}

@@ -12,6 +12,7 @@
 import axios from "axios";
 import { makeWelcomeCard } from "./maker.js";
 import { getGroupData } from "./protect.js";
+import { trackJoin as _trackJoin, trackLeave as _trackLeave } from "./group-db.js";
 import { logger } from "../bot.js";
 
 // Fallback static background (same as HydroMD original)
@@ -27,6 +28,10 @@ const REPO_URL        = "https://github.com/KyokaAizen665/Yuzuki-Md-V2";
 export async function participantsUpdate(sock, update) {
   try {
     const { id, participants, action, author } = update;
+
+    // Track joins and leaves regardless of welcome/left toggle
+    if (action === "add")    for (const num of participants) try { _trackJoin(id, num);  } catch {}
+    if (action === "remove") for (const num of participants) try { _trackLeave(id, num); } catch {}
 
     // Respect per-group welcome/left toggle (set via .welcome / .left commands)
     const gc = getGroupData(id);

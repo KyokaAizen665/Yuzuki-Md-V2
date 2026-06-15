@@ -1,0 +1,48 @@
+{
+  "players": {
+    "p1@s": {
+      "name": "p1",
+      "games": {
+        "test-game": {
+          "wins": 2,
+          "losses": 0,
+          "draws": 0,
+          "plays": 2
+        }
+      }
+    },
+    "p@s": {
+      "name": "p",
+      "games": {
+        "test-game": {
+          "wins": 2,
+          "losses": 0,
+          "draws": 0,
+          "plays": 2
+        }
+      }
+    },
+    "lb-player1@s.whatsapp.net": {
+      "name": "Alice",
+      "games": {
+        "ui-test-game": {
+          "wins": 4,
+          "losses": 2,
+          "draws": 0,
+          "plays": 6
+        }
+      }
+    },
+    "lb-player2@s.whatsapp.net": {
+      "name": "Bob",
+      "games": {
+        "ui-test-game": {
+          "wins": 2,
+          "losses": 4,
+          "draws": 0,
+          "plays": 6
+        }
+      }
+    }
+  }
+}

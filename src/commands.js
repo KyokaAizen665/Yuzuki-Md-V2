@@ -27,6 +27,8 @@ import { clearSession, stopBot, startBot, state as botState } from "./bot.js";
 import { pushToGitHub, pullFromGitHub, getChangelog } from "./utils/github.js";
 import { card, toast, toggle, listCard, progress, previewCard } from "./utils/ui.js";
 import { CATEGORIES, buildMain, buildSub, buildListPayload, MENU_BG } from "./menu.js";
+import { getCommand, getCategories } from "./lib/registry.js";
+import { categoryCard, helpCard, allMenuCarousel } from "./nativeflow/index.js";
 // Free AI — no API keys required (Pollinations.AI + StreamElements + Groq)
 import QRCode from "qrcode";
 import ytdl from "@distube/ytdl-core";
@@ -55,9 +57,13 @@ import {
   checkLimit, useLimit,
   addXP, addCoins, spendCoins, getLeaderboard, getRankPosition,
 } from "./lib/database.js";
+import { sendLevelUpCard } from "./lib/level-card.js";
+import { sendForwarded, sendAdReply, sendNewsletterStyle, sendAnnouncementCard } from "./lib/msg-tricks.js";
+import { games } from "./lib/games.js";
 import { antilinkDetector, getGroupData, setGroupData } from "./lib/protect.js";
 const execAsync = promisify(exec);
-async function polliText(messages,model="openai"){const r=await fetch("https://text.pollinations.ai/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages,model,seed:-1,private:false})});if(!r.ok)throw new Error(`Pollinations API error: ${r.status}`);return(await r.text()).trim();}
+async function polliText(messages,model="openai"){const MAP={"openai":"llama-3.1-8b-instant","openai-large":"llama-3.3-70b-versatile","gemini":"gemma2-9b-it","mistral":"mixtral-8x7b-32768"};const gm=MAP[model]??"llama-3.1-8b-instant";const key=process.env.GROQ_API_KEY;if(!key)throw new Error("GROQ_API_KEY not set — get a free key at console.groq.com");const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},body:JSON.stringify({model:gm,messages,temperature:0.7,max_tokens:2048}),signal:AbortSignal.timeout(30000)});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error(`Groq ${r.status}: ${t}`);}const d=await r.json();return d.choices[0].message.content.trim();}
+async function hfImage(prompt,width=1024,height=1024){const key=process.env.HF_TOKEN??process.env.HUGGING_FACE_TOKEN;if(!key)throw new Error("HF_TOKEN not set — get a free token at huggingface.co");const r=await fetch("https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({inputs:prompt,parameters:{width,height}}),signal:AbortSignal.timeout(90000)});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error(`HF ${r.status}: ${t}`);}return Buffer.from(await r.arrayBuffer());}
 async function dlQuoted(msg,jid){const ctx=msg.message?.extendedTextMessage?.contextInfo;if(!ctx?.quotedMessage)return null;const fm={key:{remoteJid:jid,id:ctx.stanzaId,fromMe:ctx.fromMe??false,participant:ctx.participant},message:ctx.quotedMessage};return{buf:await downloadMediaMessage(fm,"buffer",{}),qm:ctx.quotedMessage};}
 const INVIDIOUS=["https://iv.ggtyler.dev","https://invidious.nerdvpn.de","https://invidious.perennialte.ch"];
 async function ytSearch(q){for(const b of INVIDIOUS){try{const r=await fetch(`${b}/api/v1/search?q=${encodeURIComponent(q)}&type=video`,{signal:AbortSignal.timeout(7000)});if(r.ok)return await r.json();}catch{}}return null;}
@@ -112,17 +118,6 @@ function bjVal(h){let v=0,a=0;for(const c of h){const r=c.slice(0,-1);if(r==="A"
 
   const startTime = Date.now();
 
-// ── Per-command thumbnail helper ──────────────────────────────────────────────
-// Looks for src/assets/<name>.(jpg|png|jpeg|webp). Falls back to menu_bg.jpg.
-function getThumb(name) {
-  const dir = path.dirname(MENU_BG);
-  for (const ext of ["jpg", "png", "jpeg", "webp"]) {
-    const p = path.join(dir, `${name}.${ext}`);
-    if (fs.existsSync(p)) return fs.readFileSync(p);
-  }
-  return fs.readFileSync(MENU_BG);
-}
-
 const OWNER_COMMANDS = new Set([
   "setprefix","setowner","addowner","delowner","setbotname",
   "public","self","antidelete","gconly","autoblock",
@@ -132,7 +127,6 @@ const OWNER_COMMANDS = new Set([
   "addkey","delkey",
   "addcase","delcase","editcase",
   "push","update","changelog",
-  "givexp","addcoins","resetprofile",
 ]);
 
 export async function handleCommand({ sock, msg, command, args }) {
@@ -147,9 +141,7 @@ export async function handleCommand({ sock, msg, command, args }) {
     : (msg.key.participant ?? msg.key.remoteJid ?? "");
 
   const reply = async (text) => {
-    try {
-      await sock.sendMessage(jid, { text }, { quoted: msg });
-    } catch {}
+    await sock.sendMessage(jid, { text }, { quoted: msg });
   };
 
   const channelQuote = (settings.channelId && settings.channelName)
@@ -184,17 +176,6 @@ export async function handleCommand({ sock, msg, command, args }) {
     }
   };
 
-  // replyWithThumb: send an image from src/assets/<thumbName>.(jpg|png…) with
-  // the caption as the message body. Falls back to plain text on error.
-  const replyWithThumb = async (thumbName, caption) => {
-    try {
-      const thumb = getThumb(thumbName);
-      await sock.sendMessage(jid, { image: thumb, caption }, { quoted: channelQuote || msg });
-    } catch {
-      await replyChannel(caption);
-    }
-  };
-
 
     // Sends with verified contact card quote — falls back to plain reply if it fails
     const replyVerified = async (text) => {
@@ -209,16 +190,13 @@ export async function handleCommand({ sock, msg, command, args }) {
   const pushname = msg.pushName ?? "User";
   const text = args.join(" ").trim();
 
-  // ── Auto-award XP on every command ───────────────────────────────────────────
+      // ── Auto-award XP on every command (feature 7) ─────────────────────────────
   try {
-    const xpGain = Math.floor(Math.random() * 5) + 3; // 3–7 XP per command
+    const xpGain = Math.floor(Math.random() * 5) + 3;
     const xpResult = addXP(sender, xpGain, pushname);
     if (xpResult.leveled) {
       setTimeout(() => {
-        sock.sendMessage(jid, {
-          text: `🎉 *Level Up!* @${sender.split("@")[0].split(":")[0]}\n\n⭐ You are now *Level ${xpResult.newLevel}*! Keep it up 🔥`,
-          mentions: [sender],
-        }).catch(() => {});
+        sendLevelUpCard(sock, jid, sender, pushname || sender.split("@")[0].split(":")[0], xpResult.oldLevel, xpResult.newLevel, xpResult.user.exp).catch(() => {});
       }, 800);
     }
   } catch {}
@@ -230,284 +208,56 @@ export async function handleCommand({ sock, msg, command, args }) {
     }
   }
 
+  const pluginCmd = getCommand(command);
+
+  if (pluginCmd?.execute) {
+    return await pluginCmd.execute({
+      sock,
+      msg,
+      args,
+      settings,
+      prefix,
+      sender,
+      reply,
+      replyChannel,
+    });
+  }
+
+  // ── Dynamic category shortcut ────────────────────────────────────────────────
+  // Any registered category name works as a shortcut command (e.g. ".ai", ".games").
+  // Installing a plugin that registers a new category automatically makes it
+  // available here — no changes to this file required.
+  if (getCategories().includes(command)) {
+    await categoryCard(sock, jid, msg, command, {
+      prefix,
+      botName: settings.botName ?? "Yuzuki MD",
+    });
+    return;
+  }
+
   switch (command) {
 
 
-    // ── Direct sub-menu shortcuts (.ai, .tools, .fun, etc.) ──────────────────
-    case "ai":
-    case "tools":
-    case "fun":
-    case "game":
-    case "general":
-    case "group":
-    case "owner":
-    case "profile":
-    case "search":
-    case "youtube":
-    case "downloader": {
-      const botName2 = settings.botName ?? "Yuzuki";
-      const imageUrl2 = settings.menuBgUrl || MENU_BG;
-      const subCaption = buildSub(botName2, prefix, command);
-      if (!subCaption) { await reply(`Unknown category: ${command}`); break; }
-
-      const vq2 = getVerifiedQuoted(settings);
-      let thumbnail2;
-      try { const tr = await fetch("https://www.upload.ee/image/19419994/file.jpg"); thumbnail2 = Buffer.from(await tr.arrayBuffer()); } catch { thumbnail2 = undefined; }
-      const ctx2 = {
-        forwardingScore: 2025, isForwarded: true,
-        ...(settings.channelId && settings.channelName ? { forwardedNewsletterMessageInfo: { newsletterJid: settings.channelId, serverMessageId: null, newsletterName: settings.channelName } } : {}),
-        externalAdReply: { title: botName2, body: `${botName2} Bot`, mediaType: 1, previewType: 0, thumbnail: thumbnail2, thumbnailUrl: "https://www.upload.ee/image/19419994/file.jpg", renderLargerThumbnail: true, sourceUrl: "t.me//DeathCore_Xr", mediaUrl: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
-        quotedMessage: vq2.message, participant: vq2.key.participant, remoteJid: vq2.key.remoteJid,
-      };
-      try { await sock.sendMessage(jid, { image: { url: imageUrl2 }, caption: subCaption, contextInfo: ctx2 }); }
-      catch { await reply(subCaption); }
-      break;
-    }
-
-    case "menu": {
-      const botName = settings.botName ?? "Yuzuki";
-      const sub = args[0]?.toLowerCase();
-
-      // ── Sub-menu: .menu ai, .menu tools, etc. ──────────────────────────
-      if (sub && CATEGORIES[sub]) {
-        const caption = buildSub(botName, prefix, sub);
-        const vq = getVerifiedQuoted(settings);
-        const menuCtx = {
-          forwardingScore: 2025,
-          isForwarded: true,
-          ...(settings.channelId && settings.channelName ? {
-            forwardedNewsletterMessageInfo: {
-              newsletterJid: settings.channelId,
-              serverMessageId: null,
-              newsletterName: settings.channelName,
-            },
-          } : {}),
-          quotedMessage: vq.message,
-          participant: vq.key.participant,
-          remoteJid: vq.key.remoteJid,
-        };
-        try {
-          await sock.sendMessage(jid, { text: caption, contextInfo: menuCtx });
-        } catch {
-          await reply(caption);
-        }
-        break;
-      }
-
-      // ── Main menu: image + rich caption with live stats ──────────────────
-      // Gather runtime data
-      const db = loadDB();
-      const totalUsers = Object.keys(db.users ?? {}).length;
-      const totalCmds = Object.values(CATEGORIES).reduce((a, c) => a + c.commands.length, 0);
-      const uptimeMs = Date.now() - startTime;
-      const uptimeSec = Math.floor(uptimeMs / 1000);
-      const uptimeMin = Math.floor(uptimeSec / 60);
-      const uptimeHr = Math.floor(uptimeMin / 60);
-      const uptimeDays = Math.floor(uptimeHr / 24);
-      const uptimeStr = `${uptimeDays}d ${uptimeHr % 24}h ${uptimeMin % 60}m ${uptimeSec % 60}s`;
-      const pushname = msg.pushName ?? "User";
-      const userRank = isOwner(senderJid, settings) ? "Owner 👑" : "User 🌟";
-      const ownerNumber = (settings.ownerNumber ?? "").replace(/\D/g, "");
-
-      const menuCaption = buildMain(botName, prefix, { pushname, userRank, uptimeStr, totalUsers, totalCmds, ownerNumber });
-      const imageUrl = settings.menuBgUrl || MENU_BG;
-
-      const vq = getVerifiedQuoted(settings);
-      let menuThumb;
-      try {
-        const tr = await fetch(imageUrl);
-        menuThumb = Buffer.from(await tr.arrayBuffer());
-      } catch { menuThumb = undefined; }
-
-      const menuCtx = {
-        forwardingScore: 2025,
-        isForwarded: true,
-        ...(settings.channelId && settings.channelName ? {
-          forwardedNewsletterMessageInfo: {
-            newsletterJid: settings.channelId,
-            serverMessageId: null,
-            newsletterName: settings.channelName,
-          },
-        } : {}),
-        externalAdReply: {
-          title: botName,
-          body: `${botName} Bot`,
-          mediaType: 1,
-          previewType: 0,
-          thumbnail: menuThumb,
-          thumbnailUrl: imageUrl,
-          renderLargerThumbnail: false,
-          sourceUrl: "t.me//DeathCore_Xr",
-          mediaUrl: "https://www.upload.ee/image/19419994/file.jpg",
-        },
-        quotedMessage: vq.message,
-        participant: vq.key.participant,
-        remoteJid: vq.key.remoteJid,
-      };
-
-      // ── Send menu with .-style single_select button ──────────────
-      const menuRows = Object.entries(CATEGORIES).map(([key, cat]) => ({
-        title: `${cat.icon} ${cat.title}`,
-        description: `${cat.commands.length} commands`,
-        id: `${prefix}menu ${key}`,
-      }));
-
-      try {
-        const mediaHeader = await prepareWAMessageMedia(
-          menuThumb ? { image: menuThumb } : { image: { url: imageUrl } },
-          { upload: sock.waUploadToServer }
-        );
-        const interactiveMsg = generateWAMessageFromContent(jid, {
-          viewOnceMessage: {
-            message: {
-              messageContextInfo: {
-                deviceListMetadata: {},
-                deviceListMetadataVersion: 2,
-              },
-              interactiveMessage: {
-                body: { text: menuCaption },
-                footer: { text: `Powered by Yuzukimd` },
-                header: {
-                  title: "",
-                  subtitle: "",
-                  hasMediaAttachment: true,
-                  ...mediaHeader,
-                },
-                nativeFlowMessage: {
-                  buttons: [{
-                    name: "single_select",
-                    buttonParamsJson: JSON.stringify({
-                      title: "📂 Browse Categories",
-                      sections: [{ title: "Menu Categories", rows: menuRows }],
-                    }),
-                  }],
-                },
-              },
-            },
-          },
-        }, { quoted: msg }, {});
-        await sock.relayMessage(interactiveMsg.key.remoteJid, interactiveMsg.message, { messageId: interactiveMsg.key.id });
-      } catch {
-        try {
-          await sock.sendMessage(jid, { image: { url: imageUrl }, caption: menuCaption, contextInfo: menuCtx });
-        } catch {
-          await reply(menuCaption);
-        }
-      }
-      break;
-    }
-
-    // ── .allmenu — full command list, image + single select, no carousel ──────────
+    // ── .allmenu — registry-driven swipeable carousel ────────────────────
+    // Categories and commands come from the live registry.
+    // Adding/removing plugins automatically updates the carousel.
     case "allmenu": {
       await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
-      try {
-        const botName = settings.botName ?? "Yuzuki";
-        const totalCmds = Object.values(CATEGORIES).reduce((a, c) => a + c.commands.length, 0);
-
-        // Build full caption — every category and every command
-        const fullCaption =
-          `🎐 *${botName} — Full Command List* 🎐\n` +
-          `┈┈┈┈୨♡୧┈┈┈┈\n\n` +
-          Object.values(CATEGORIES)
-            .map((cat) => {
-              const cmds = cat.commands.map((cmd) => `◦ *${prefix}${cmd}*`).join("\n");
-              return `${cat.icon} *${cat.title}*\n${cmds}`;
-            })
-            .join("\n\n") +
-          `\n\n┈┈┈┈୨♡୧┈┈┈┈\n` +
-          `✨ *${totalCmds} commands total* — Use *${prefix}menu <category>* for details.`;
-
-        // Local asset image (falls back to remote menuBgUrl if set)
-        let imgBuf;
-        if (settings.menuBgUrl) {
-          try {
-            const r = await fetch(settings.menuBgUrl);
-            imgBuf = Buffer.from(await r.arrayBuffer());
-          } catch { imgBuf = fs.readFileSync(MENU_BG); }
-        } else {
-          imgBuf = fs.readFileSync(MENU_BG);
-        }
-
-        const vq = getVerifiedQuoted(settings);
-
-        // Single select rows — one per category, same as .menu
-        const menuRows = Object.entries(CATEGORIES).map(([key, cat]) => ({
-          title: `${cat.icon} ${cat.title}`,
-          description: `${cat.commands.length} commands`,
-          id: `${prefix}menu ${key}`,
-        }));
-
-        // Try interactive image + single_select (mirrors .menu behaviour)
-        try {
-          const mediaHeader = await prepareWAMessageMedia(
-            { image: imgBuf },
-            { upload: sock.waUploadToServer }
-          );
-          const interactiveMsg = generateWAMessageFromContent(jid, {
-            viewOnceMessage: {
-              message: {
-                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                interactiveMessage: {
-                  contextInfo: {
-                    externalAdReply: {
-                      title: botName,
-                      body: `${totalCmds} commands available`,
-                      thumbnail: imgBuf,
-                      mediaType: 1,
-                      renderLargerThumbnail: false,
-                      sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
-                    },
-                    quotedMessage: vq.message,
-                    participant: vq.key.participant,
-                    remoteJid: vq.key.remoteJid,
-                  },
-                  body: { text: fullCaption },
-                  footer: { text: `Powered by ${botName}` },
-                  header: { title: "", subtitle: "", hasMediaAttachment: true, ...mediaHeader },
-                  nativeFlowMessage: {
-                    buttons: [{
-                      name: "single_select",
-                      buttonParamsJson: JSON.stringify({
-                        title: "📂 Browse Categories",
-                        sections: [{ title: "Menu Categories", rows: menuRows }],
-                      }),
-                    }],
-                  },
-                },
-              },
-            },
-          }, { quoted: msg }, {});
-          await sock.relayMessage(
-            interactiveMsg.key.remoteJid,
-            interactiveMsg.message,
-            { messageId: interactiveMsg.key.id }
-          );
-        } catch {
-          // Fallback — plain image with caption, fake contact quote, small externalAdReply
-          await sock.sendMessage(jid, {
-            image: imgBuf,
-            caption: fullCaption,
-            contextInfo: {
-              externalAdReply: {
-                title: botName,
-                body: `${totalCmds} commands available`,
-                thumbnail: imgBuf,
-                mediaType: 1,
-                renderLargerThumbnail: false,
-                sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
-              },
-              quotedMessage: vq.message,
-              participant: vq.key.participant,
-              remoteJid: vq.key.remoteJid,
-            },
-          }, { quoted: vq });
-        }
-
-        await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-      } catch (e) {
-        await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-        await reply(`❌ allmenu failed: ${e.message}`);
-      }
+      const _ownerNum = (settings.ownerNumber ?? "").replace(/\D/g, "");
+      const _result = await allMenuCarousel(sock, jid, msg, {
+        prefix,
+        botName:    settings.botName ?? "Yuzuki MD",
+        thumbUrl:   settings.menuBgUrl || "https://www.upload.ee/image/19419994/file.jpg",
+        ctaButtons: [
+          { label: "⭐ GitHub Repo",  url: "https://github.com/KyokaAizen665/Yuzuki-Md-V2" },
+          { label: "💬 Chat Owner",   url: `https://wa.me/${_ownerNum}` },
+          { label: "📢 Join Channel", url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326" },
+          { label: "✈️ Telegram",     url: "https://t.me/DeathCore_Xr" },
+        ],
+      });
+      await sock.sendMessage(jid, {
+        react: { text: _result.ok ? "✅" : "❌", key: msg.key },
+      });
       break;
     }
 
@@ -531,7 +281,7 @@ export async function handleCommand({ sock, msg, command, args }) {
       break;
     }
 
-    case "ping": {
+    case "__migrated_ping__": {
       const t0 = Date.now();
       await replyChannel(card("🏓", "Pong", [
         ["Response", `${Date.now() - t0} ms`],
@@ -540,36 +290,8 @@ export async function handleCommand({ sock, msg, command, args }) {
       break;
     }
 
-    case "alive": {
-      const ms0 = Date.now() - startTime;
-      const s0 = Math.floor(ms0 / 1000);
-      const m0 = Math.floor(s0 / 60);
-      const h0 = Math.floor(m0 / 60);
-      const d0 = Math.floor(h0 / 24);
-      const botName0 = settings.botName ?? "Yuzuki MD";
-      const uptime0  = `${d0}d ${h0 % 24}h ${m0 % 60}m ${s0 % 60}s`;
-      const text0 = card("🐋", botName0, [
-        ["Status",   "Online ✅"],
-        ["Prefix",   `\`${prefix}\``],
-        ["Mode",     (settings.mode ?? "public").toUpperCase()],
-        ["Uptime",   uptime0],
-      ], "Yuzuki MD v2 • Powered by focashi");
-      const payload0 = await previewCard(text0, {
-  title: botName0,
-  body: `Online ✅  •  Uptime: ${uptime0}`,
-  thumbUrl: "https://www.upload.ee/image/19419994/file.jpg",
-  sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
-  largeThumb: true
-});
-      const channelJid0 = settings.channelId ? `${settings.channelId}@newsletter` : null;
-      if (channelJid0) {
-        await sock.sendMessage(channelJid0, payload0);
-      }
-      await sock.sendMessage(jid, payload0, { quoted: msg });
-      break;
-    }
 
-    case "uptime": {
+    case "__migrated_uptime__": {
       const ms = Date.now() - startTime;
       const s = Math.floor(ms / 1000);
       const m = Math.floor(s / 60);
@@ -609,14 +331,17 @@ const cards = [
 header: {
 ...media1,
 title: "👑 Aizen",
-subtitle: "Owner & Developer",
+subtitle: "Developer",
 hasMediaAttachment: true
 },
 body: {
-text:
-"*Hi 👋. Chat Aizen the developer who made me.*\n\n" +
-"𝗡𝗮𝗺𝗲: Aizen\n" +
-"𝗖𝗼𝗻𝘁𝗮𝗰𝘁: +233533416608"
+  text:
+    "🌸 Welcome to Yuzuki MD\n\n" +
+    "👑 Aizen\n" +
+    "Creator & Developer\n\n" +
+    "Need support, have feedback,\n" +
+    "or want to get in touch?\n" +
+    "Tap the button below."
 },
 nativeFlowMessage: {
 buttons: [
@@ -661,14 +386,16 @@ merchant_url: "https://wa.me/233533416608"
 {
   header: {
     ...media3,
-    title: "✈️ Telegram",
-    subtitle: "Community",
+    title: "✈️ Telegram", 
+subtitle: "Direct Contact",
     hasMediaAttachment: true
   },
   body: {
     text:
-      `Join our Telegram community.\n\n` +
-      `Get support, announcements and connect with other users.`
+  "✈️ Connect with Aizen\n\n" +
+  "Questions, feedback, ideas,\n" +
+  "or project discussions?\n\n" +
+  "Reach out directly on Telegram."
   },
   nativeFlowMessage: {
     buttons: [
@@ -697,7 +424,9 @@ deviceListMetadataVersion: 2,
 },
 interactiveMessage: {
 body: {
-text: "👑 Yuzuki MD Owner Information"
+  text:
+    "🌸 Contact & Support\n\n" +
+    "Swipe through the cards below."
 },
 carouselMessage: {
 cards,
@@ -719,7 +448,7 @@ carouselMsg.message,
 break;
 }
 
-    case "speed": {
+    case "__migrated_speed__": {
       const t1 = Date.now();
       await replyChannel(card("📡", "Speed Test", [
         ["Latency", `${Date.now() - t1} ms`],
@@ -770,21 +499,7 @@ break;
       break;
     }
 
-    case "setprefix": {
-      const np = args[0];
-      if (!np) { await reply(toast("info", "Usage", `${prefix}setprefix <new_prefix>`)); break; }
-      setSetting("prefix", np);
-      await reply(toast("ok", "Prefix Updated", `\`${np}\``));
-      break;
-    }
 
-    case "setowner": {
-      const num = args[0]?.replace(/[^0-9]/g, "");
-      if (!num) { await reply(toast("info", "Usage", `${prefix}setowner <phone_number>`)); break; }
-      setSetting("ownerNumber", num);
-      await reply(toast("ok", "Owner Number Set", num));
-      break;
-    }
 
     case "addowner": {
       const num = args[0]?.replace(/[^0-9]/g, "");
@@ -810,38 +525,13 @@ break;
       break;
     }
 
-    case "setbotname": {
-      const name = args.join(" ");
-      if (!name) { await reply(toast("info", "Usage", `${prefix}setbotname <name>`)); break; }
-      setSetting("botName", name);
-      await reply(toast("ok", "Bot Name Updated", name));
-      break;
-    }
 
-    case "public":
-      setSetting("mode", "public");
-      await reply(toggle("🌍", "Bot Mode", true, "Responds to everyone"));
-      break;
 
-    case "self":
-      setSetting("mode", "self");
-      await reply(toggle("🔒", "Bot Mode  •  Self", true, "Responds to owner only"));
-      break;
 
     case "antidelete": {
       const cur = loadSettings().antidelete ?? false;
       setSetting("antidelete", !cur);
       await reply(toggle("🗑", "Anti-Delete", !cur));
-      break;
-    }
-
-    case "antiviewonce":
-    case "antivo": {
-      const cur = loadSettings().antiviewonce ?? false;
-      setSetting("antiviewonce", !cur);
-      await reply(toggle("👁", "Anti-View-Once", !cur,
-        !cur ? "View-once photos/videos/audios will be auto-revealed" : "View-once messages are hidden again"
-      ));
       break;
     }
 
@@ -871,11 +561,6 @@ break;
       break;
     }
 
-    case "restart":
-      await reply(progress("♻️", "Restarting Bot", "Back online in a few seconds..."));
-      await stopBot();
-      setTimeout(() => startBot().catch(console.error), 1500);
-      break;
 
     case "clearsession":
       await reply(progress("🔑", "Clearing Session", "Will reconnect and show a new pairing code..."));
@@ -1327,7 +1012,7 @@ break;
   break;
 }
 
-      case "runtime": {
+      case "__migrated_runtime__": {
         const ms = Date.now() - startTime;
         const totalSec = Math.floor(ms / 1000);
         const d = Math.floor(totalSec / 86400);
@@ -1386,82 +1071,15 @@ break;
 }
 
       case "help": {
-const mediaHeader = await prepareWAMessageMedia(
-{
-image: {
-url: "https://www.upload.ee/image/19419994/file.jpg"
-}
-},
-{
-upload: sock.waUploadToServer
-}
-);
-
-const msgx = generateWAMessageFromContent(jid, {
-viewOnceMessage: {
-message: {
-messageContextInfo: {
-deviceListMetadata: {},
-deviceListMetadataVersion: 2,
-},
-interactiveMessage: {
-header: {
-hasMediaAttachment: true,
-...mediaHeader
-},
-body: {
-text:
-`*${settings.botName ?? "Bot"} Help*\n` +
-`━━━━━━━━━━━━━━━━━━━\n` +
-`Use *${prefix}menu* to browse all commands.\n` +
-`Use *${prefix}menu <category>* for a specific list.\n\n` +
-`Categories:\n` +
-`🤖 AI\n🎮 Game\n🛠 Tools\n🔍 Search\n👥 Group\n👑 Owner`
-},
-footer: {
-text: "Yuzuki MD"
-},
-nativeFlowMessage: {
-buttons: [
-{
-name: "cta_url",
-buttonParamsJson: JSON.stringify({
-display_text: "📢 WhatsApp Channel",
-url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326",
-merchant_url: "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
-})
-},
-{
-name: "cta_url",
-buttonParamsJson: JSON.stringify({
-display_text: "💬 Chat Owner",
-url: "https://wa.me/233533416608",
-merchant_url: "https://wa.me/233533416608"
-})
-},
-{
-name: "cta_url",
-buttonParamsJson: JSON.stringify({
-display_text: "✈️ Telegram",
-url: "https://t.me/DeathCore_Xr",
-merchant_url: "https://t.me/DeathCore_Xr"
-})
-}
-]
-}
-}
-}
-}
-}, { quoted: msg });
-
-await sock.relayMessage(
-jid,
-msgx.message,
-{ messageId: msgx.key.id }
-);
-
-break;
-}
+        // Registry-driven help card — live category list and command counts.
+        // The help plugin (src/plugins/tools/help.js) handles this when registered;
+        // this case fires only when the plugin is not loaded.
+        await helpCard(sock, jid, msg, {
+          prefix,
+          botName: settings.botName ?? "Yuzuki MD",
+        });
+        break;
+      }
 
       case "donate": {
   const msgx = generateWAMessageFromContent(jid, {
@@ -1511,16 +1129,6 @@ break;
 
       // ── Group Management ──────────────────────────────────────────────────────
 
-      case "tagall": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        try {
-          const meta = await sock.groupMetadata(jid);
-          const mentions = meta.participants.map(p => p.id);
-          const text = `*\`Yuzuki MD\` tag all ${mentions.length} members*\n` + mentions.map(id => `@${id.split("@")[0]}`).join(" ");
-          await sock.sendMessage(jid, { text, mentions }, { quoted: msg });
-        } catch { await reply("❌ Failed to tag members — make sure I'm an admin."); }
-        break;
-      }
 
       case "groupinfo": {
         if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
@@ -1623,34 +1231,8 @@ break;
         break;
       }
 
-      case "mute": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        try {
-          await sock.groupSettingUpdate(jid, "announcement");
-          await reply("🔇 Group muted — only admins can send messages.");
-        } catch { await reply("❌ Failed — make sure I'm an admin."); }
-        break;
-      }
 
-      case "unmute": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        try {
-          await sock.groupSettingUpdate(jid, "not_announcement");
-          await reply("🔊 Group unmuted — everyone can send messages.");
-        } catch { await reply("❌ Failed — make sure I'm an admin."); }
-        break;
-      }
 
-      case "kick": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        if (!mentioned.length) { await reply(`Usage: ${prefix}kick @user`); break; }
-        try {
-          await sock.groupParticipantsUpdate(jid, mentioned, "remove");
-          await reply(`✅ Removed ${mentioned.length} member(s).`);
-        } catch { await reply("❌ Failed — make sure I'm an admin."); }
-        break;
-      }
 
       case "add": {
         if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
@@ -1663,27 +1245,7 @@ break;
         break;
       }
 
-      case "promote": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        if (!mentioned.length) { await reply(`Usage: ${prefix}promote @user`); break; }
-        try {
-          await sock.groupParticipantsUpdate(jid, mentioned, "promote");
-          await reply(`✅ Promoted ${mentioned.length} member(s) to admin.`);
-        } catch { await reply("❌ Failed — make sure I'm an admin."); }
-        break;
-      }
 
-      case "demote": {
-        if (!jid?.endsWith("@g.us")) { await reply("This command only works in groups."); break; }
-        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        if (!mentioned.length) { await reply(`Usage: ${prefix}demote @user`); break; }
-        try {
-          await sock.groupParticipantsUpdate(jid, mentioned, "demote");
-          await reply(`✅ Demoted ${mentioned.length} member(s) from admin.`);
-        } catch { await reply("❌ Failed — make sure I'm an admin."); }
-        break;
-      }
 
       // ── Owner: block / unblock / broadcast ────────────────────────────────────
 
@@ -1817,531 +1379,19 @@ break;
         break;
       }
 
-      // ── Profile / RPG ─────────────────────────────────────────────────────────
-
-      case "reg": {
-        initUserDB(sender, pushname);
-        const db0 = loadDB();
-        const u0 = db0.users[sender];
-        if (u0.registered) {
-          await reply(`✅ You are already registered, *${u0.name}*!\n\nUse *.rank* to see your profile.`);
-          break;
-        }
-        u0.registered = true;
-        u0.money = (u0.money || 0) + 100;
-        if (!Array.isArray(u0.badges)) u0.badges = [];
-        if (!u0.badges.includes("🌱 Newcomer")) u0.badges.push("🌱 Newcomer");
-        if (!u0.bio) u0.bio = "";
-        saveDB(db0);
-        await replyWithThumb("reg",
-          `🎉 *Welcome, ${pushname}!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `✅ Profile registered!\n` +
-          `💰 Welcome bonus: *+100 coins*\n` +
-          `🌱 Badge earned: *Newcomer*\n\n` +
-          `Use *.rank* to see your profile\nUse *.setbio* to set your bio`
-        );
-        break;
-      }
-
+      case "bio":
+      case "setbio":
+      case "reg":
       case "rank":
       case "xp":
-      case "vcard": {
-        initUserDB(sender, pushname);
-        const dbR = loadDB();
-        const uR = dbR.users[sender];
-        if (!uR.registered) {
-          await reply(`❌ You are not registered yet!\n\nUse *${prefix}reg* to create your profile.`);
-          break;
-        }
-        const lvlR = uR.level || 0;
-        const expR = uR.exp || 0;
-        const xpNeedR = (lvlR + 1) * 100;
-        const filledR = Math.round((expR / xpNeedR) * 10);
-        const barR = "█".repeat(filledR) + "░".repeat(10 - filledR);
-        const rankPos = getRankPosition(sender) ?? "—";
-        const badgesR = (uR.badges || []).join(" ") || "None";
-        const bioR = uR.bio || "No bio set.";
-        await replyWithThumb("rank",
-          `👤 *${uR.name || pushname}*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🏆 Rank: *#${rankPos}*\n` +
-          `⭐ Level: *${lvlR}*\n` +
-          `✨ XP: *${expR}/${xpNeedR}*\n` +
-          `[${barR}]\n` +
-          `💰 Coins: *${uR.money || 0}*\n` +
-          `🏦 Bank: *${uR.bank || 0}*\n` +
-          `❤️ HP: *${uR.health || 100}*\n` +
-          `💬 Messages: *${uR.msgCount || 0}*\n` +
-          `🎖 Badges: ${badgesR}\n` +
-          `📝 Bio: _${bioR}_`
-        );
+      case "leaderboard":
+      case "badge":
+      case "vcard":
+      case "gift":
+      case "redeem":
+      case "setpp":
+        await reply(`⚙️ *${command}* requires a database to store user profiles. Connect a database and implement profile storage to enable this command.`);
         break;
-      }
-
-      case "leaderboard": {
-        const lbList = getLeaderboard(10);
-        if (!lbList.length) {
-          await reply(`No registered users yet!\n\nUse *${prefix}reg* to create your profile.`);
-          break;
-        }
-        const medals = ["🥇","🥈","🥉"];
-        const rows = lbList.map((u, i) => {
-          const icon = medals[i] ?? `${i + 1}.`;
-          return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
-        }).join("\n");
-        await replyWithThumb("leaderboard", `🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${rows}`);
-        break;
-      }
-
-      case "bio": {
-        initUserDB(sender, pushname);
-        const dbBio = loadDB();
-        const uBio = dbBio.users[sender];
-        await reply(
-          `📝 *Bio — ${uBio.name || pushname}*\n\n` +
-          (uBio.bio || `No bio set yet.\nUse *${prefix}setbio <text>* to set one.`)
-        );
-        break;
-      }
-
-      case "setbio": {
-        if (!text) { await reply(`Usage: ${prefix}setbio <your bio>`); break; }
-        if (text.length > 150) { await reply("❌ Bio is too long (max 150 characters)."); break; }
-        initUserDB(sender, pushname);
-        const dbSb = loadDB();
-        dbSb.users[sender].bio = text;
-        saveDB(dbSb);
-        await reply(`✅ Bio updated!\n\n📝 _${text}_`);
-        break;
-      }
-
-      case "badge": {
-        initUserDB(sender, pushname);
-        const dbBad = loadDB();
-        const uBad = dbBad.users[sender];
-        const badgeList = uBad.badges || [];
-        if (!badgeList.length) {
-          await reply(`You have no badges yet!\n\n🎖 Keep using the bot to earn badges.\nUse *${prefix}reg* to register if you haven't.`);
-          break;
-        }
-        await reply(
-          `🎖 *Badges — ${uBad.name || pushname}*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          badgeList.join("\n") +
-          `\n\n_Total: ${badgeList.length} badge(s)_`
-        );
-        break;
-      }
-
-      case "gift": {
-        const giftMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        const giftTarget = giftMentioned[0];
-        const giftAmount = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
-        if (!giftTarget) { await reply(`Usage: ${prefix}gift @user <amount>`); break; }
-        if (!giftAmount || giftAmount <= 0) { await reply(`❌ Enter a valid amount.\nUsage: ${prefix}gift @user 100`); break; }
-        initUserDB(sender, pushname);
-        initUserDB(giftTarget, "User");
-        const dbGift = loadDB();
-        const giver = dbGift.users[sender];
-        const receiver = dbGift.users[giftTarget];
-        if ((giver.money || 0) < giftAmount) {
-          await reply(`❌ Insufficient coins.\n💰 You have: *${giver.money || 0}* coins`);
-          break;
-        }
-        giver.money -= giftAmount;
-        receiver.money = (receiver.money || 0) + giftAmount;
-        saveDB(dbGift);
-        await replyWithThumb("gift",
-          `🎁 *Gift Sent!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `👤 From: *${pushname}*\n` +
-          `👤 To: @${giftTarget.split("@")[0].split(":")[0]}\n` +
-          `💰 Amount: *${giftAmount} coins*\n` +
-          `💳 Your balance: *${giver.money} coins*`
-        );
-        break;
-      }
-
-      case "redeem": {
-        const keyInput = args[0]?.trim();
-        if (!keyInput) { await reply(`Usage: ${prefix}redeem <key>`); break; }
-        const allKeys = getKeys();
-        const foundKey = allKeys.find(k => k.key === keyInput && k.active !== false);
-        if (!foundKey) { await reply("❌ Invalid or inactive key."); break; }
-        initUserDB(sender, pushname);
-        const dbRed = loadDB();
-        const uRed = dbRed.users[sender];
-        if (!Array.isArray(uRed.redeemedKeys)) uRed.redeemedKeys = [];
-        if (uRed.redeemedKeys.includes(keyInput)) {
-          await reply("❌ You have already redeemed this key.");
-          break;
-        }
-        uRed.redeemedKeys.push(keyInput);
-        uRed.money = (uRed.money || 0) + 500;
-        saveDB(dbRed);
-        await replyWithThumb("redeem",
-          `✅ *Key Redeemed!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🔑 Key: \`${keyInput}\`\n` +
-          `💰 Reward: *+500 coins*\n` +
-          `💳 Balance: *${uRed.money} coins*`
-        );
-        break;
-      }
-
-      case "setpp": {
-        if (!isOwner(senderJid, settings)) { await reply("❌ Owner only."); break; }
-        try {
-          let imgBuf;
-          const quotedCtx = msg.message?.extendedTextMessage?.contextInfo;
-          if (quotedCtx?.quotedMessage?.imageMessage) {
-            const fakeMsg = {
-              message: quotedCtx.quotedMessage,
-              key: { remoteJid: jid, id: quotedCtx.stanzaId, fromMe: false, participant: quotedCtx.participant },
-            };
-            imgBuf = await downloadMediaMessage(fakeMsg, "buffer", {});
-          } else if (msg.message?.imageMessage) {
-            imgBuf = await downloadMediaMessage(msg, "buffer", {});
-          }
-          if (!imgBuf) { await reply("❌ Send or quote an image to set as the bot's profile picture."); break; }
-          await sock.updateProfilePicture(sock.user.id, imgBuf);
-          await reply("✅ Bot profile picture updated!");
-        } catch (e) {
-          await reply(`❌ Failed to update profile picture: ${e.message}`);
-        }
-        break;
-      }
-
-      // ── Profile Engine ───────────────────────────────────────────────────────
-
-      case "daily": {
-        initUserDB(sender, pushname);
-        const dbD = loadDB();
-        const uD = dbD.users[sender];
-        if (!uD.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        const dailyNow = Date.now();
-        const dailyCool = 24 * 60 * 60 * 1000;
-        if (dailyNow - (uD.lastdaily || 0) < dailyCool) {
-          const rem = dailyCool - (dailyNow - (uD.lastdaily || 0));
-          const h = Math.floor(rem / 3600000);
-          const m = Math.floor((rem % 3600000) / 60000);
-          await reply(`⏳ Daily already claimed!\n\n🕐 Come back in *${h}h ${m}m*.`);
-          break;
-        }
-        const dailyCoins = Math.floor(Math.random() * 101) + 50;
-        uD.lastdaily = dailyNow;
-        uD.money = (uD.money || 0) + dailyCoins;
-        uD.exp = (uD.exp || 0) + 10;
-        while (uD.exp >= (uD.level + 1) * 100) { uD.exp -= (uD.level + 1) * 100; uD.level++; }
-        saveDB(dbD);
-        await replyWithThumb("daily",
-          `🎁 *Daily Reward Claimed!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `💰 Coins: *+${dailyCoins}*\n` +
-          `✨ XP: *+10*\n` +
-          `💳 Balance: *${uD.money} coins*\n\n` +
-          `_Come back in 24 hours for more!_`
-        );
-        break;
-      }
-
-      case "bal":
-      case "balance": {
-        initUserDB(sender, pushname);
-        const dbBal = loadDB();
-        const uBal = dbBal.users[sender];
-        if (!uBal.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        await replyWithThumb("bal",
-          `💳 *Balance — ${uBal.name || pushname}*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `👛 Wallet: *${uBal.money || 0} coins*\n` +
-          `🏦 Bank:   *${uBal.bank || 0} coins*\n` +
-          `💎 Total:  *${(uBal.money || 0) + (uBal.bank || 0)} coins*`
-        );
-        break;
-      }
-
-      case "deposit": {
-        const depAmt = parseInt(args[0]);
-        if (!depAmt || depAmt <= 0) { await reply(`Usage: ${prefix}deposit <amount>`); break; }
-        initUserDB(sender, pushname);
-        const dbDep = loadDB();
-        const uDep = dbDep.users[sender];
-        if (!uDep.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        if ((uDep.money || 0) < depAmt) { await reply(`❌ Not enough coins.\n💳 Wallet: *${uDep.money || 0}*`); break; }
-        uDep.money -= depAmt;
-        uDep.bank = (uDep.bank || 0) + depAmt;
-        saveDB(dbDep);
-        await replyWithThumb("deposit",
-          `🏦 *Deposit Successful*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📥 Deposited: *${depAmt} coins*\n` +
-          `👛 Wallet: *${uDep.money}*\n` +
-          `🏦 Bank: *${uDep.bank}*`
-        );
-        break;
-      }
-
-      case "withdraw": {
-        const wdAmt = parseInt(args[0]);
-        if (!wdAmt || wdAmt <= 0) { await reply(`Usage: ${prefix}withdraw <amount>`); break; }
-        initUserDB(sender, pushname);
-        const dbWd = loadDB();
-        const uWd = dbWd.users[sender];
-        if (!uWd.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        if ((uWd.bank || 0) < wdAmt) { await reply(`❌ Not enough in bank.\n🏦 Bank: *${uWd.bank || 0}*`); break; }
-        uWd.bank -= wdAmt;
-        uWd.money = (uWd.money || 0) + wdAmt;
-        saveDB(dbWd);
-        await replyWithThumb("withdraw",
-          `🏦 *Withdrawal Successful*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `📤 Withdrawn: *${wdAmt} coins*\n` +
-          `👛 Wallet: *${uWd.money}*\n` +
-          `🏦 Bank: *${uWd.bank}*`
-        );
-        break;
-      }
-
-      case "transfer": {
-        const trMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        const trTarget = trMentioned[0];
-        const trAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
-        if (!trTarget) { await reply(`Usage: ${prefix}transfer @user <amount>`); break; }
-        if (!trAmt || trAmt <= 0) { await reply(`❌ Enter a valid amount.`); break; }
-        if (trTarget === sender) { await reply(`❌ You can't transfer to yourself.`); break; }
-        initUserDB(sender, pushname);
-        initUserDB(trTarget, "User");
-        const dbTr = loadDB();
-        const uTrFrom = dbTr.users[sender];
-        const uTrTo = dbTr.users[trTarget];
-        if (!uTrFrom.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        if ((uTrFrom.money || 0) < trAmt) { await reply(`❌ Not enough coins.\n💳 Wallet: *${uTrFrom.money || 0}*`); break; }
-        uTrFrom.money -= trAmt;
-        uTrTo.money = (uTrTo.money || 0) + trAmt;
-        saveDB(dbTr);
-        await sock.sendMessage(jid, {
-          image: getThumb("transfer"),
-          caption:
-            `💸 *Transfer Sent!*\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `👤 To: @${trTarget.split("@")[0].split(":")[0]}\n` +
-            `💰 Amount: *${trAmt} coins*\n` +
-            `💳 Your wallet: *${uTrFrom.money}*`,
-          mentions: [trTarget],
-        }, { quoted: channelQuote || msg });
-        break;
-      }
-
-      case "mine": {
-        initUserDB(sender, pushname);
-        const dbMine = loadDB();
-        const uMine = dbMine.users[sender];
-        if (!uMine.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        const mineNow = Date.now();
-        const mineCool = 4 * 60 * 60 * 1000;
-        if (mineNow - (uMine.lastmining || 0) < mineCool) {
-          const rem = mineCool - (mineNow - (uMine.lastmining || 0));
-          const h = Math.floor(rem / 3600000);
-          const m = Math.floor((rem % 3600000) / 60000);
-          await reply(`⛏️ Already mined!\n\n🕐 Next mine in *${h}h ${m}m*.`);
-          break;
-        }
-        const mineCoins = Math.floor(Math.random() * 61) + 20;
-        const mineXP = Math.floor(Math.random() * 11) + 5;
-        uMine.lastmining = mineNow;
-        uMine.money = (uMine.money || 0) + mineCoins;
-        uMine.exp = (uMine.exp || 0) + mineXP;
-        while (uMine.exp >= (uMine.level + 1) * 100) { uMine.exp -= (uMine.level + 1) * 100; uMine.level++; }
-        saveDB(dbMine);
-        const ORES = ["⛏️ Iron","🪨 Stone","💎 Diamond","🥇 Gold","🔮 Crystal","🌑 Coal"];
-        const ore = ORES[Math.floor(Math.random() * ORES.length)];
-        await replyWithThumb("mine",
-          `⛏️ *Mining Complete!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🪨 Found: *${ore}*\n` +
-          `💰 Coins: *+${mineCoins}*\n` +
-          `✨ XP: *+${mineXP}*\n` +
-          `💳 Balance: *${uMine.money}*\n\n` +
-          `_Next mine available in 4 hours._`
-        );
-        break;
-      }
-
-      case "work": {
-        initUserDB(sender, pushname);
-        const dbWork = loadDB();
-        const uWork = dbWork.users[sender];
-        if (!uWork.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        const workNow = Date.now();
-        const workCool = 60 * 60 * 1000;
-        if (workNow - (uWork.lastwork || 0) < workCool) {
-          const rem = workCool - (workNow - (uWork.lastwork || 0));
-          const m = Math.floor(rem / 60000);
-          await reply(`💼 Already worked!\n\n🕐 Next shift in *${m} min*.`);
-          break;
-        }
-        const workCoins = Math.floor(Math.random() * 31) + 10;
-        const workXP = Math.floor(Math.random() * 6) + 3;
-        uWork.lastwork = workNow;
-        uWork.money = (uWork.money || 0) + workCoins;
-        uWork.exp = (uWork.exp || 0) + workXP;
-        while (uWork.exp >= (uWork.level + 1) * 100) { uWork.exp -= (uWork.level + 1) * 100; uWork.level++; }
-        saveDB(dbWork);
-        const JOBS = ["🧹 cleaned offices","👨‍🍳 cooked meals","📦 delivered packages","💻 fixed bugs","🎨 designed a logo","🔧 repaired equipment","📚 tutored students","🚗 drove a taxi"];
-        const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-        await replyWithThumb("work",
-          `💼 *Work Complete!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🏷️ You ${job}\n` +
-          `💰 Earned: *${workCoins} coins*\n` +
-          `✨ XP: *+${workXP}*\n` +
-          `💳 Balance: *${uWork.money}*\n\n` +
-          `_Next shift in 1 hour._`
-        );
-        break;
-      }
-
-      case "heal": {
-        initUserDB(sender, pushname);
-        const dbHeal = loadDB();
-        const uHeal = dbHeal.users[sender];
-        if (!uHeal.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        if ((uHeal.health || 100) >= 100) { await reply(`❤️ Already at full health *(100 HP)*!`); break; }
-        const healCost = 50;
-        if ((uHeal.money || 0) < healCost) {
-          await reply(`❌ Not enough coins.\n💰 Healing costs *${healCost} coins*.\n💳 You have: *${uHeal.money || 0}*`);
-          break;
-        }
-        const healed = Math.min(50, 100 - (uHeal.health || 0));
-        uHeal.money -= healCost;
-        uHeal.health = Math.min(100, (uHeal.health || 0) + healed);
-        saveDB(dbHeal);
-        await replyWithThumb("heal",
-          `❤️ *Healed!*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `💊 HP restored: *+${healed}*\n` +
-          `❤️ HP: *${uHeal.health}/100*\n` +
-          `💰 Cost: *-${healCost} coins*\n` +
-          `💳 Balance: *${uHeal.money}*`
-        );
-        break;
-      }
-
-      case "dungeon": {
-        initUserDB(sender, pushname);
-        const dbDun = loadDB();
-        const uDun = dbDun.users[sender];
-        if (!uDun.registered) { await reply(`❌ Register first with *${prefix}reg*.`); break; }
-        const dunNow = Date.now();
-        const dunCool = 6 * 60 * 60 * 1000;
-        if (dunNow - (uDun.lastdungeon || 0) < dunCool) {
-          const rem = dunCool - (dunNow - (uDun.lastdungeon || 0));
-          const h = Math.floor(rem / 3600000);
-          const m = Math.floor((rem % 3600000) / 60000);
-          await reply(`⚔️ Still recovering!\n\n🕐 Next dungeon in *${h}h ${m}m*.`);
-          break;
-        }
-        const ENEMIES = [
-          { name: "🐺 Wolf",      dmg: 15, reward: 40,  xp: 20 },
-          { name: "🧟 Zombie",    dmg: 20, reward: 60,  xp: 30 },
-          { name: "🐉 Dragon",    dmg: 35, reward: 100, xp: 50 },
-          { name: "🧙 Dark Mage", dmg: 25, reward: 80,  xp: 40 },
-          { name: "💀 Skeleton",  dmg: 18, reward: 50,  xp: 25 },
-        ];
-        const enemy = ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
-        const win = (uDun.health || 100) > enemy.dmg || Math.random() > 0.35;
-        uDun.lastdungeon = dunNow;
-        if (win) {
-          uDun.money = (uDun.money || 0) + enemy.reward;
-          uDun.exp = (uDun.exp || 0) + enemy.xp;
-          while (uDun.exp >= (uDun.level + 1) * 100) { uDun.exp -= (uDun.level + 1) * 100; uDun.level++; }
-          uDun.health = Math.max(1, (uDun.health || 100) - Math.floor(enemy.dmg / 2));
-          saveDB(dbDun);
-          await replyWithThumb("dungeon",
-            `⚔️ *Victory!*\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `👹 Defeated: *${enemy.name}*\n` +
-            `💰 Reward: *+${enemy.reward} coins*\n` +
-            `✨ XP: *+${enemy.xp}*\n` +
-            `❤️ HP: *${uDun.health}/100* (-${Math.floor(enemy.dmg / 2)})\n` +
-            `💳 Balance: *${uDun.money}*\n\n` +
-            `_Next dungeon in 6 hours._`
-          );
-        } else {
-          uDun.health = Math.max(1, (uDun.health || 100) - enemy.dmg);
-          saveDB(dbDun);
-          await replyWithThumb("dungeon",
-            `💀 *Defeated!*\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `👹 *${enemy.name}* was too strong!\n` +
-            `❤️ HP: *${uDun.health}/100* (-${enemy.dmg})\n\n` +
-            `_Use *${prefix}heal* to restore HP.\nNext dungeon in 6 hours._`
-          );
-        }
-        break;
-      }
-
-      case "top": {
-        const lbTop = getLeaderboard(10);
-        if (!lbTop.length) { await reply(`No registered users yet! Use *${prefix}reg* to create a profile.`); break; }
-        const medals = ["🥇","🥈","🥉"];
-        const topRows = lbTop.map((u, i) => {
-          const icon = medals[i] ?? `${i + 1}.`;
-          return `${icon} *${u.name || u.jid.split("@")[0]}* — Lv.${u.level || 0} (${u.exp || 0} XP)`;
-        }).join("\n");
-        await replyWithThumb("top", `🏆 *Top Players*\n━━━━━━━━━━━━━━━━━━━\n${topRows}`);
-        break;
-      }
-
-      case "givexp": {
-        const gxMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        const gxTarget = gxMentioned[0];
-        const gxAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
-        if (!gxTarget || !gxAmt || gxAmt <= 0) { await reply(`Usage: ${prefix}givexp @user <amount>`); break; }
-        initUserDB(gxTarget, "User");
-        const dbGx = loadDB();
-        const uGx = dbGx.users[gxTarget];
-        uGx.exp = (uGx.exp || 0) + gxAmt;
-        while (uGx.exp >= (uGx.level + 1) * 100) { uGx.exp -= (uGx.level + 1) * 100; uGx.level++; }
-        saveDB(dbGx);
-        await reply(`✅ Gave *${gxAmt} XP* to @${gxTarget.split("@")[0].split(":")[0]} (now Lv.${uGx.level})`);
-        break;
-      }
-
-      case "addcoins": {
-        const acMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        const acTarget = acMentioned[0];
-        const acAmt = parseInt(args.find(a => /^\d+$/.test(a)) || "0");
-        if (!acTarget || !acAmt || acAmt <= 0) { await reply(`Usage: ${prefix}addcoins @user <amount>`); break; }
-        initUserDB(acTarget, "User");
-        const dbAc = loadDB();
-        dbAc.users[acTarget].money = (dbAc.users[acTarget].money || 0) + acAmt;
-        saveDB(dbAc);
-        await reply(`✅ Added *${acAmt} coins* to @${acTarget.split("@")[0].split(":")[0]}\n💳 Balance: *${dbAc.users[acTarget].money}*`);
-        break;
-      }
-
-      case "resetprofile": {
-        const rpMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-        const rpTarget = rpMentioned[0];
-        if (!rpTarget) { await reply(`Usage: ${prefix}resetprofile @user`); break; }
-        const dbRp = loadDB();
-        if (!dbRp.users[rpTarget]) { await reply("❌ User not found in database."); break; }
-        const rpName = dbRp.users[rpTarget].name || "User";
-        const rpPremium = dbRp.users[rpTarget].premium || false;
-        dbRp.users[rpTarget] = {
-          level: 0, exp: 0, money: 0, bank: 0, health: 100,
-          limitfree: 15, limitprem: 0, limitbuy: 0,
-          lastmining: 0, lastdungeon: 0, lastwork: 0, lastdaily: 0,
-          name: rpName, registered: false, premium: rpPremium,
-          bio: "", badges: [], msgCount: 0, redeemedKeys: [],
-        };
-        saveDB(dbRp);
-        await reply(`✅ Profile of @${rpTarget.split("@")[0].split(":")[0]} has been reset.`);
-        break;
-      }
 
       // ── Search (free APIs — no key needed) ───────────────────────────────────
 
@@ -2492,17 +1542,45 @@ const summaryRes = await fetch(
 const s = await summaryRes.json();
 const wikiUrl = s.content_urls?.desktop?.page ?? "";
 
-const wikiThumb = s.thumbnail?.source || s.originalimage?.source || null;
-const wikiPayload = await previewCard(
-  `📚 *${s.title}*\n━━━━━━━━━━━━━━━━━━━\n${s.extract?.slice(0, 500) ?? "No summary available."}`,
-  {
-    title: s.title,
-    body: `📖 Wikipedia`,
-    thumbUrl: wikiThumb,
-    sourceUrl: wikiUrl,
+const msgx = generateWAMessageFromContent(jid, {
+  viewOnceMessage: {
+    message: {
+      messageContextInfo: {
+        deviceListMetadata: {},
+        deviceListMetadataVersion: 2,
+      },
+      interactiveMessage: {
+        body: {
+          text:
+            `📚 *${s.title}*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `${s.extract?.slice(0, 500) ?? "No summary available."}`
+        },
+        footer: {
+          text: settings.botName ?? "Yuzuki MD"
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "cta_url",
+              buttonParamsJson: JSON.stringify({
+                display_text: "📖 Read on Wikipedia",
+                url: wikiUrl,
+                merchant_url: wikiUrl
+              })
+            }
+          ]
+        }
+      }
+    }
   }
+}, { quoted: msg });
+
+await sock.relayMessage(
+  jid,
+  msgx.message,
+  { messageId: msgx.key.id }
 );
-await sock.sendMessage(jid, wikiPayload, { quoted: msg });
 
 } catch {
 await reply("❌ Failed to fetch Wikipedia article.");
@@ -2608,79 +1686,6 @@ break;
       case "toimg": {
         const dl=await dlQuoted(msg,jid);if(!dl?.qm?.stickerMessage){await reply(`Reply to a sticker with ${prefix}toimg`);break;}
         try{const { default: sharp } = await import("sharp"); const png=await sharp(dl.buf).png().toBuffer();await sock.sendMessage(jid,{image:png,caption:"🖼️ Converted from sticker"},{quoted:msg});}catch(e){await reply(`❌ toimg: ${e.message}`);}
-        break;
-      }
-
-      // ── View-once bypass — .vv / .rv / .rvo ─────────────────────────
-      case "vv":
-      case "rv":
-      case "rvo": {
-        // Extract contextInfo from any message container WhatsApp may use.
-        // Disappearing-message chats wrap the command in ephemeralMessage,
-        // newer clients may use normalTextMessage — check all paths.
-        const msgContent = msg.message ?? {};
-        const ctx2 =
-          msgContent.extendedTextMessage?.contextInfo ??
-          msgContent.ephemeralMessage?.message?.extendedTextMessage?.contextInfo ??
-          msgContent.normalTextMessage?.contextInfo ??
-          msgContent.imageMessage?.contextInfo ??
-          msgContent.videoMessage?.contextInfo;
-
-        if (!ctx2?.quotedMessage) {
-          await reply(`👁 Reply to a view-once photo, video or audio with *${prefix}${command}*`);
-          break;
-        }
-
-        // Quoted message may itself be wrapped in ephemeral or other containers.
-        const qmRaw = ctx2.quotedMessage;
-        const qm = qmRaw?.ephemeralMessage?.message ?? qmRaw;
-
-        // Try all known view-once outer wrappers (v1 / v2 / v2Extension).
-        let voInner =
-          qm?.viewOnceMessage?.message ??
-          qm?.viewOnceMessageV2?.message ??
-          qm?.viewOnceMessageV2Extension?.message;
-
-        // Fallback: newer WhatsApp versions strip the outer viewOnce wrapper when
-        // storing the quoted message, leaving just imageMessage / videoMessage /
-        // audioMessage directly in qm.  Accept those as valid view-once content.
-        if (!voInner && (qm?.imageMessage || qm?.videoMessage || qm?.audioMessage)) {
-          voInner = qm;
-        }
-
-        if (!voInner) {
-          await reply("❌ That message is not a view-once. Make sure you reply directly to the view-once message (not a forward or a copy).");
-          break;
-        }
-
-        try {
-          const fakeMsg = {
-            key: {
-              remoteJid: jid,
-              id: ctx2.stanzaId,
-              fromMe: ctx2.fromMe ?? false,
-              participant: ctx2.participant,
-            },
-            message: voInner,
-          };
-          const buf = await downloadMediaMessage(fakeMsg, "buffer", {});
-          const senderName = ctx2.participant
-            ? `@${ctx2.participant.split("@")[0]}`
-            : "someone";
-          const caption = `👁 *View-Once revealed*  •  _sent by ${senderName}_`;
-          if (voInner.imageMessage) {
-            await sock.sendMessage(jid, { image: buf, caption }, { quoted: msg });
-          } else if (voInner.videoMessage) {
-            await sock.sendMessage(jid, { video: buf, caption, mimetype: "video/mp4" }, { quoted: msg });
-          } else if (voInner.audioMessage) {
-            await sock.sendMessage(jid, { audio: buf, mimetype: "audio/ogg; codecs=opus", ptt: true }, { quoted: msg });
-            await reply(caption);
-          } else {
-            await reply("❌ Unsupported view-once media type.");
-          }
-        } catch (e) {
-          await reply(`❌ Could not reveal: ${e.message}`);
-        }
         break;
       }
 
@@ -2801,104 +1806,17 @@ break;
         break;
       }
 
-      case "chatgpt": {
-        const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}chatgpt <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"openai");const msgx = generateWAMessageFromContent(jid,{
-  viewOnceMessage:{
-    message:{
-      messageContextInfo:{
-        deviceListMetadata:{},
-        deviceListMetadataVersion:2,
-      },
-      interactiveMessage:{
-        body:{ text:`🤖 *ChatGPT:*\n${res}` },
-        footer:{ text: settings.botName ?? "Yuzuki MD" },
-        nativeFlowMessage:{
-          buttons:[{
-            name:"cta_copy",
-            buttonParamsJson:JSON.stringify({
-              display_text:"📋 Copy Response",
-              copy_code:res
-            })
-          }]
-        }
-      }
-    }
-  }
-},{ quoted: msg });
 
-await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ ChatGPT: ${e.message}`);}
-        break;
-      }
-      case "claude": {
-        const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}claude <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"openai-large");const msgx = generateWAMessageFromContent(jid,{
-  viewOnceMessage:{
-    message:{
-      messageContextInfo:{
-        deviceListMetadata:{},
-        deviceListMetadataVersion:2,
-      },
-      interactiveMessage:{
-        body:{ text:`🧠 *Claude:*\n${res}` },
-        footer:{ text: settings.botName ?? "Yuzuki MD" },
-        nativeFlowMessage:{
-          buttons:[{
-            name:"cta_copy",
-            buttonParamsJson:JSON.stringify({
-              display_text:"📋 Copy Response",
-              copy_code:res
-            })
-          }]
-        }
-      }
-    }
-  }
-},{ quoted: msg });
-
-await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ Claude: ${e.message}`);}
-        break;
-      }
-
-      case "gemini": {
-        const text=args.join(" ").trim();if(!text){await reply(`Usage: ${prefix}gemini <message>`);break;}
-        try{const res=await polliText([{role:"user",content:text}],"gemini");const msgx = generateWAMessageFromContent(jid,{
-  viewOnceMessage:{
-    message:{
-      messageContextInfo:{
-        deviceListMetadata:{},
-        deviceListMetadataVersion:2,
-      },
-      interactiveMessage:{
-        body:{ text:`✨ *Gemini:*\n${res}` },
-        footer:{ text: settings.botName ?? "Yuzuki MD" },
-        nativeFlowMessage:{
-          buttons:[{
-            name:"cta_copy",
-            buttonParamsJson:JSON.stringify({
-              display_text:"📋 Copy Response",
-              copy_code:res
-            })
-          }]
-        }
-      }
-    }
-  }
-},{ quoted: msg });
-
-await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });}catch(e){await reply(`❌ Gemini: ${e.message}`);}
-        break;
-      }
 
       case "imagine":
       case "dalle": {
         const p=args.join(" ").trim();if(!p){await reply(`Usage: ${prefix}${command} <prompt>`);break;}
-        try{const imgUrl=`https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?nologo=true&width=1024&height=1024&seed=${Math.floor(Math.random()*99999)}`;await sock.sendMessage(jid,{image:{url:imgUrl},caption:`🎨 *${p}*`},{quoted:msg});}catch(e){await reply(`❌ Image gen: ${e.message}`);}
+        try{const buf=await hfImage(p,1024,1024);await sock.sendMessage(jid,{image:buf,caption:`🎨 *${p}*`,mimetype:"image/jpeg"},{quoted:msg});}catch(e){await reply(`❌ Image gen: ${e.message}`);}
         break;
       }
       case "aiart": {
         const p=args.join(" ").trim();if(!p){await reply(`Usage: ${prefix}aiart <prompt>`);break;}
-        try{const imgUrl=`https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?nologo=true&width=1024&height=1024&model=flux&seed=${Math.floor(Math.random()*99999)}`;await sock.sendMessage(jid,{image:{url:imgUrl},caption:`🎨 *${p}*`},{quoted:msg});}catch(e){await reply(`❌ AI Art: ${e.message}`);}
+        try{const buf=await hfImage(p,1024,1024);await sock.sendMessage(jid,{image:buf,caption:`🎨 *${p}*`,mimetype:"image/jpeg"},{quoted:msg});}catch(e){await reply(`❌ AI Art: ${e.message}`);}
         break;
       }
 
@@ -3052,92 +1970,9 @@ await reply(`❌ Translate: ${e.message}`);
 break;
 }
 
-      case "ytmp3": {
-        const url=args[0]?.trim();if(!url||!/youtu/.test(url)){await reply(`Usage: ${prefix}ytmp3 <YouTube URL>`);break;}
-        await reply("⏳ Downloading audio...");
-        try{
-          const info=await ytdl.getInfo(url);
-          const dur=parseInt(info.videoDetails.lengthSeconds);
-          if(dur>600){await reply("❌ Video too long (max 10 min).");break;}
-          const fmt=ytdl.chooseFormat(info.formats,{quality:"highestaudio",filter:"audioonly"});
-          const chunks=[];await new Promise((res,rej)=>{const s=ytdl.downloadFromInfo(info,{format:fmt});s.on("data",c=>chunks.push(c));s.on("end",res);s.on("error",rej);});
-          const buf=Buffer.concat(chunks);if(buf.length>64*1024*1024){await reply("❌ Too large.");break;}
-          const ytmp3Thumb=info.videoDetails.thumbnails?.slice(-1)[0]?.url||"";
-          await sock.sendMessage(jid,{audio:buf,mimetype:fmt.mimeType?.split(";")[0]||"audio/webm",fileName:`${info.videoDetails.title.slice(0,40)}.webm`,contextInfo:{externalAdReply:{title:info.videoDetails.title.slice(0,60),body:info.videoDetails.author?.name||"",thumbnailUrl:ytmp3Thumb,mediaType:1,sourceUrl:url}}},{quoted:msg});
-        }catch(e){await reply(`❌ ytmp3: ${e.message}`);}
-        break;
-      }
-      case "ytmp4": {
-        const url=args[0]?.trim();if(!url||!/youtu/.test(url)){await reply(`Usage: ${prefix}ytmp4 <YouTube URL>`);break;}
-        await reply("⏳ Downloading video...");
-        try{
-          const info=await ytdl.getInfo(url);
-          const dur=parseInt(info.videoDetails.lengthSeconds);
-          if(dur>300){await reply("❌ Video too long (max 5 min for video).");break;}
-          const fmt=ytdl.chooseFormat(info.formats,{quality:"lowestvideo",filter:f=>f.hasAudio&&f.hasVideo});
-          if(!fmt){await reply("❌ No suitable format found.");break;}
-          const chunks=[];await new Promise((res,rej)=>{const s=ytdl.downloadFromInfo(info,{format:fmt});s.on("data",c=>chunks.push(c));s.on("end",res);s.on("error",rej);});
-          const buf=Buffer.concat(chunks);if(buf.length>64*1024*1024){await reply("❌ Too large.");break;}
-          const ytmp4Thumb=info.videoDetails.thumbnails?.slice(-1)[0]?.url||"";
-          await sock.sendMessage(jid,{video:buf,caption:`🎬 ${info.videoDetails.title}`,mimetype:"video/mp4",contextInfo:{externalAdReply:{title:info.videoDetails.title.slice(0,60),body:info.videoDetails.author?.name||"",thumbnailUrl:ytmp4Thumb,mediaType:1,renderLargerThumbnail:true,sourceUrl:url}}},{quoted:msg});
-        }catch(e){await reply(`❌ ytmp4: ${e.message}`);}
-        break;
-      }
 
-      case "igdl": {
-        const u=args[0]?.trim();if(!u||!/instagram\.com/.test(u)){await reply(`Usage: ${prefix}igdl <Instagram URL>`);break;}
-        await reply("⏳ Fetching from Instagram...");
-        try{
-          const r=await fetch(`https://api.fastdl.app/api/convert`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
-          const d=await r.json();
-          if(!d?.medias?.length){
-            const r2=await fetch(`https://igdownloader.app/api/ajaxSearch`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`recaptchaToken=&q=${encodeURIComponent(u)}&t=media&lang=en`});
-            const d2=await r2.json();if(!d2?.data){await reply("❌ Could not fetch. The post may be private.");break;}
-            await sock.sendMessage(jid,{text:`📥 *Instagram Download*\n${d2.data.replace(/<[^>]+>/g," ").trim().slice(0,500)}`},{quoted:msg});break;
-          }
-          // Use first image media as thumbnail for the preview strip
-          const igdlThumb=d.medias.find(m=>m.type==="image"||m.url?.includes(".jpg")||m.url?.includes(".png"))?.url||"";
-          for(let igdlIdx=0;igdlIdx<d.medias.slice(0,3).length;igdlIdx++){
-            const m=d.medias[igdlIdx];
-            const igdlCtx=igdlIdx===0&&igdlThumb?{externalAdReply:{title:"Instagram Download",body:`${d.medias.length} media item${d.medias.length>1?"s":""}`,thumbnailUrl:igdlThumb,mediaType:1,sourceUrl:u}}:undefined;
-            if(m.type==="video"||m.url?.includes(".mp4")){
-              await sock.sendMessage(jid,{video:{url:m.url},caption:"📥 Instagram Video",...(igdlCtx?{contextInfo:igdlCtx}:{})},{quoted:msg});
-            }else{
-              await sock.sendMessage(jid,{image:{url:m.url},caption:"📥 Instagram Image",...(igdlCtx?{contextInfo:igdlCtx}:{})},{quoted:msg});
-            }
-          }
-        }catch(e){await reply(`❌ igdl: ${e.message}`);}
-        break;
-      }
 
-      case "tiktok": {
-        const u=args[0]?.trim();if(!u||!/tiktok\.com/.test(u)){await reply(`Usage: ${prefix}tiktok <TikTok URL>`);break;}
-        await reply("⏳ Fetching TikTok video...");
-        try{
-          const r=await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(u)}`);
-          const d=await r.json();
-          if(d.code!==0||!d.data){await reply("❌ Could not fetch. Check the URL.");break;}
-          const v=d.data;
-          const vidUrl=v.play||v.hdplay||v.wmplay;
-          if(!vidUrl){await reply("❌ No video found.");break;}
-          await sock.sendMessage(jid,{video:{url:vidUrl},caption:`📥 *${v.title?.slice(0,100)||"TikTok Video"}*\n👤 ${v.author?.nickname||"?"}  👁 ${fmtNum(v.play_count)}  ❤️ ${fmtNum(v.digg_count)}`,contextInfo:{externalAdReply:{title:v.title?.slice(0,60)||"TikTok Video",body:`👤 ${v.author?.nickname||"?"} • ❤️ ${fmtNum(v.digg_count)}`,thumbnailUrl:v.cover||"",mediaType:1,renderLargerThumbnail:true,sourceUrl:u}}},{quoted:msg});
-        }catch(e){await reply(`❌ tiktok: ${e.message}`);}
-        break;
-      }
 
-      case "fbdl": {
-        const u=args[0]?.trim();if(!u||!/facebook\.com|fb\.watch/.test(u)){await reply(`Usage: ${prefix}fbdl <Facebook video URL>`);break;}
-        await reply("⏳ Fetching Facebook video...");
-        try{
-          const r=await fetch(`https://api.fastdl.app/api/convert`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
-          const d=await r.json();
-          const vid=d?.medias?.find(m=>m.type==="video")||d?.medias?.[0];
-          if(!vid?.url){await reply("❌ Could not fetch. The video may be private or the URL is invalid.");break;}
-          const fbThumb=d.thumbnail||d.medias?.find(m=>m.type==="image")?.url||"";
-          await sock.sendMessage(jid,{video:{url:vid.url},caption:`📥 Facebook Video${d.title?` — ${d.title.slice(0,80)}`:""}`,contextInfo:{externalAdReply:{title:d.title||"Facebook Video",body:"📥 via Yuzuki MD",thumbnailUrl:fbThumb,mediaType:1,renderLargerThumbnail:true,sourceUrl:u}}},{quoted:msg});
-        }catch(e){await reply(`❌ fbdl: ${e.message}`);}
-        break;
-      }
 
       case "twdl": {
         const u=args[0]?.trim();if(!u||!/twitter\.com|x\.com/.test(u)){await reply(`Usage: ${prefix}twdl <Twitter/X URL>`);break;}
@@ -3148,20 +1983,16 @@ break;
           const r=await fetch(`https://api.vxtwitter.com/Twitter/status/${tweetId}`);
           const d=await r.json();
           if(!d){await reply("❌ Could not fetch tweet.");break;}
-          const twThumb=d.user_profile_image_url||"";
-          const twCtx={externalAdReply:{title:`@${d.user_name||"Twitter"}`,body:d.text?.slice(0,80)||"",thumbnailUrl:twThumb,mediaType:1,renderLargerThumbnail:false,sourceUrl:u}};
           if(d.media_extended?.length){
-            for(let twI=0;twI<d.media_extended.slice(0,2).length;twI++){
-              const m=d.media_extended[twI];
+            for(const m of d.media_extended.slice(0,2)){
               if(m.type==="video"||m.type==="gif"){
-                await sock.sendMessage(jid,{video:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`,contextInfo:twCtx},{quoted:msg});
+                await sock.sendMessage(jid,{video:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`},{quoted:msg});
               }else{
-                await sock.sendMessage(jid,{image:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`,contextInfo:twCtx},{quoted:msg});
+                await sock.sendMessage(jid,{image:{url:m.url},caption:`📥 @${d.user_name}: ${d.text?.slice(0,100)||""}`},{quoted:msg});
               }
             }
           }else if(d.text){
-            const twPayload=await previewCard(`📥 *@${d.user_name}:*\n${d.text||""}`,{title:`@${d.user_name||"Twitter"}`,body:(d.text||"").slice(0,60),thumbUrl:twThumb,sourceUrl:u});
-            await sock.sendMessage(jid,twPayload,{quoted:msg});
+            await reply(`📥 *@${d.user_name}:*\n${d.text}`);
           }else{await reply("❌ No media found in this tweet.");}
         }catch(e){await reply(`❌ twdl: ${e.message}`);}
         break;
@@ -3178,7 +2009,7 @@ break;
           if(d.success&&d.link){
             const chunks=[];const resp=await fetch(d.link);const ab=await resp.arrayBuffer();const buf=Buffer.from(ab);
             if(buf.length>64*1024*1024){await reply("❌ File too large.");break;}
-            await sock.sendMessage(jid,{audio:buf,mimetype:"audio/mpeg",fileName:`${d.metadata?.title||"spotify_track"}.mp3`,contextInfo:{externalAdReply:{title:d.metadata?.title||"Spotify Track",body:d.metadata?.artists||"",thumbnailUrl:d.metadata?.coverUrl||d.metadata?.cover||"",mediaType:1,sourceUrl:u}}},{quoted:msg});
+            await sock.sendMessage(jid,{audio:buf,mimetype:"audio/mpeg",fileName:`${d.metadata?.title||"spotify_track"}.mp3`},{quoted:msg});
           }else{
             await reply(`❌ Could not download. Try searching YouTube instead:\n${prefix}ytmp3 ${d.metadata?.title||"song name"}`);
           }
@@ -3450,14 +2281,18 @@ break;
           const cur=d.current_condition[0],area=d.nearest_area[0];
           const weatherText = `🌤️ *Weather: ${area.areaName[0].value}, ${area.country[0].value}*\n━━━━━━━━━━━━━━━━━━━\n🌡️ *Temp:* ${cur.temp_C}°C (feels ${cur.FeelsLikeC}°C)\n☁️ *Condition:* ${cur.weatherDesc[0].value}\n💧 *Humidity:* ${cur.humidity}%\n💨 *Wind:* ${cur.windspeedKmph} km/h`;
           const wttrUrl = `https://wttr.in/${encodeURIComponent(city)}`;
-          const wttrThumb = `https://wttr.in/${encodeURIComponent(city)}_1.png`;
-          const weatherPayload = await previewCard(weatherText, {
-            title: `${area.areaName[0].value}, ${area.country[0].value}`,
-            body: `${cur.weatherDesc[0].value} • ${cur.temp_C}°C`,
-            thumbUrl: wttrThumb,
-            sourceUrl: wttrUrl,
-          });
-          await sock.sendMessage(jid, weatherPayload, { quoted: msg });
+          const msxWth = generateWAMessageFromContent(jid, {
+            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+              interactiveMessage: {
+                body: { text: weatherText },
+                footer: { text: settings.botName ?? "Yuzuki MD" },
+                nativeFlowMessage: { buttons: [
+                  { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🌐 Full Forecast", url: wttrUrl, merchant_url: wttrUrl }) }
+                ]}
+              }
+            }}
+          }, { quoted: msg });
+          await sock.relayMessage(jid, msxWth.message, { messageId: msxWth.key.id });
         }catch(e){await reply(`❌ Weather: ${e.message}`);}
         break;
       }
@@ -3467,9 +2302,8 @@ break;
           const r=await fetch("https://hacker-news.firebaseio.com/v0/topstories.json");
           const ids=await r.json();const top5=ids.slice(0,5);
           const stories=await Promise.all(top5.map(id=>fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r=>r.json())));
-          const newsText=`📰 *Top Tech News*\n━━━━━━━━━━━━━━━━━━━\n`+stories.map((s,i)=>`${i+1}. *${s.title}*\n   🔗 ${s.url??"https://news.ycombinator.com/item?id="+s.id}`).join("\n\n");
-          const newsPayload=await previewCard(newsText,{title:"🔥 Hacker News",body:`Top ${stories.length} stories right now`,thumbUrl:"https://news.ycombinator.com/y18.svg",sourceUrl:"https://news.ycombinator.com"});
-          await sock.sendMessage(jid,newsPayload,{quoted:msg});
+          const text=`📰 *Top Tech News*\n━━━━━━━━━━━━━━━━━━━\n`+stories.map((s,i)=>`${i+1}. *${s.title}*\n   🔗 ${s.url??"https://news.ycombinator.com/item?id="+s.id}`).join("\n\n");
+          await replyChannel(text);
         }catch(e){await reply(`❌ News: ${e.message}`);}
         break;
       }
@@ -3485,8 +2319,32 @@ break;
           const lyr=d.lyrics.trim().slice(0,3000);
           const finalLyrics =
   `🎵 *${artist} — ${song}*\n━━━━━━━━━━━━━━━━━━━\n${lyr}${d.lyrics.length>3000?"\n...(truncated)":""}`;
-          const lyricsPayload=await previewCard(finalLyrics,{title:`${artist} — ${song}`,body:`🎵 Lyrics${d.lyrics.length>3000?" (truncated)":""}`,thumbUrl:`https://wsrv.nl/?url=https://img.youtube.com/vi/${encodeURIComponent(song)}/hqdefault.jpg&w=300&h=300&fit=cover`,sourceUrl:`https://www.google.com/search?q=${encodeURIComponent(artist+" "+song+" lyrics")}`});
-          await sock.sendMessage(jid,lyricsPayload,{quoted:msg});
+
+const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text: finalLyrics },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Lyrics",
+              copy_code:lyr
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         }catch(e){await reply(`❌ Lyrics: ${e.message}`);}
         break;
       }
@@ -3500,8 +2358,32 @@ break;
           const meanings=entry.meanings.slice(0,2).map(m=>{const d=m.definitions[0];return `*${m.partOfSpeech}*: ${d.definition}${d.example?`\n_"${d.example}"_`:""}`;}).join("\n\n");
           const definitionText =
   `📖 *${entry.word}*\n━━━━━━━━━━━━━━━━━━━\n${meanings}`;
-          const definePayload=await previewCard(definitionText,{title:entry.word,body:`📖 ${entry.meanings[0]?.partOfSpeech||"Definition"}  •  ${settings.botName??"Yuzuki MD"}`,sourceUrl:`https://en.wiktionary.org/wiki/${encodeURIComponent(entry.word)}`});
-          await sock.sendMessage(jid,definePayload,{quoted:msg});
+
+const msgx = generateWAMessageFromContent(jid,{
+  viewOnceMessage:{
+    message:{
+      messageContextInfo:{
+        deviceListMetadata:{},
+        deviceListMetadataVersion:2,
+      },
+      interactiveMessage:{
+        body:{ text: definitionText },
+        footer:{ text: settings.botName ?? "Yuzuki MD" },
+        nativeFlowMessage:{
+          buttons:[{
+            name:"cta_copy",
+            buttonParamsJson:JSON.stringify({
+              display_text:"📋 Copy Definition",
+              copy_code: meanings
+            })
+          }]
+        }
+      }
+    }
+  }
+},{ quoted: msg });
+
+await sock.relayMessage(jid,msgx.message,{ messageId: msgx.key.id });
         }catch(e){await reply(`❌ Define: ${e.message}`);}
         break;
       }
@@ -3759,7 +2641,7 @@ break;
         initUserDB(sender, pushname);
         const lim = checkLimit(sender, isOwner(sender));
         if (lim === "∞") return reply("💎 You have *unlimited* limit as owner!");
-        await reply(`📊 *Your Remaining Limit*\n\n💳 Daily limit: *${lim}*\n\n> Limit resets every day at midnight.`);
+        reply(`📊 *Your Remaining Limit*\n\n💳 Daily limit: *${lim}*\n\n> Limit resets every day at midnight.`);
         break;
       }
       case "setlimit":
@@ -3767,7 +2649,7 @@ break;
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!args[0] || !args[1]) return reply(`Usage: ${prefix}setlimit <command> <cost>\nExample: ${prefix}setlimit tiktok 2`);
         setLimitCost(args[0], parseInt(args[1]) || 0);
-        await reply(`✅ Set limit cost for *${args[0]}* to *${args[1]}*`);
+        reply(`✅ Set limit cost for *${args[0]}* to *${args[1]}*`);
         break;
       }
 
@@ -3859,8 +2741,6 @@ break;
                 body: data.music_info.author || "TikTok",
                 thumbnailUrl: data.music_info.cover || "",
                 mediaType: 1,
-                renderLargerThumbnail: true,
-showAdAttribution: false,
               },
             },
           }, { quoted: msg });
@@ -3874,35 +2754,6 @@ showAdAttribution: false,
       }
 
       // ── Instagram Downloader (. engine) ────────────────────
-      case "instagram":
-      case "ig": {
-        if (!text) return reply(`📌 Example: ${prefix}igdl https://www.instagram.com/p/...`);
-        initUserDB(sender, pushname);
-        const igCost = getLimitCost("igdl", 2);
-        const igLim = checkLimit(sender, isOwner(sender));
-        if (igLim !== "∞" && igLim < igCost) return reply(`❌ Not enough limit! Need *${igCost}*, you have *${igLim}*.`);
-        await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
-        try {
-          const items = await igDl(text);
-          if (!items?.length) throw new Error("No media found.");
-          // First image item used as preview thumbnail
-          const igFirstImg = items.find(it => it.type !== "video")?.url || items[0]?.url || "";
-          for (let i = 0; i < Math.min(items.length, 10); i++) {
-            const item = items[i];
-            const igCtx = i === 0 ? { externalAdReply: { title: "Instagram Downloader", body: `${items.length} media item${items.length > 1 ? "s" : ""} • via Yuzuki MD`, thumbnailUrl: igFirstImg, mediaType: 1, renderLargerThumbnail: false, sourceUrl: text } } : undefined;
-            const opts = item.type === "video"
-              ? { video: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}`, ...(igCtx ? { contextInfo: igCtx } : {}) }
-              : { image: { url: item.url }, caption: i === 0 ? `📸 *Instagram Downloader*\n\nMedia ${i + 1}/${items.length}` : `Media ${i + 1}/${items.length}`, ...(igCtx ? { contextInfo: igCtx } : {}) };
-            await sock.sendMessage(jid, opts, { quoted: msg });
-          }
-          useLimit(sender, igCost, isOwner(sender));
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Instagram download failed: ${e.message}`);
-        }
-        break;
-      }
 
       // ── YouTube MP3 alias (. engine) ───────────────────────
       case "mp3": {
@@ -3913,58 +2764,16 @@ showAdAttribution: false,
         if (mp3Lim !== "∞" && mp3Lim < mp3Cost) return reply(`❌ Not enough limit! Need *${mp3Cost}*, you have *${mp3Lim}*.`);
         await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
         try {
-          let done = false;
-          // Tier 1: JioSaavn (for song titles, not URLs)
-          if (!/^https?:\/\//i.test(text)) {
-            try {
-              const sv = await searchSaavn(text, 1);
-              if (sv.length && sv[0].url) {
-                await sock.sendMessage(jid, {
-                  audio: { url: sv[0].url }, mimetype: "audio/mpeg",
-                  contextInfo: { externalAdReply: { title: sv[0].title, body: sv[0].artists, thumbnailUrl: sv[0].thumbnail || "", mediaType: 1,
-                  renderLargerThumbnail: true,
-showAdAttribution: false, } },
-                }, { quoted: msg });
-                done = true;
-              }
-            } catch {}
-          }
-          // Tier 2: hub.ytconvert.org
-          if (!done) {
-            try {
-              const result = await ytDlMp3(text);
-              await sock.sendMessage(jid, {
-                audio: { url: result.downloadUrl }, mimetype: "audio/mp4",
-                contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1,
-                renderLargerThumbnail: true,
-showAdAttribution: false, } },
-              }, { quoted: msg });
-              done = true;
-            } catch {}
-          }
-          // Tier 3: ytdl-core direct
-          if (!done) {
-            const ytRes = await ytSearchFn(text, 1);
-            if (!ytRes.length) throw new Error("No results found.");
-            const info = await ytdl.getInfo(ytRes[0].url);
-            const fmt = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
-            if (!fmt) throw new Error("No audio format available.");
-            const chunks = [];
-            await new Promise((res, rej) => { const s = ytdl.downloadFromInfo(info, { format: fmt }); s.on("data", c => chunks.push(c)); s.on("end", res); s.on("error", rej); });
-            await sock.sendMessage(jid, {
-              audio: Buffer.concat(chunks), mimetype: fmt.mimeType?.split(";")[0] || "audio/webm",
-              contextInfo: { externalAdReply: { title: info.videoDetails.title, thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1,
-              renderLargerThumbnail: true,
-showAdAttribution: false, } },
-            }, { quoted: msg });
-            done = true;
-          }
-          if (!done) throw new Error("All sources failed.");
+          const result = await ytDlMp3(text);
+          await sock.sendMessage(jid, {
+            audio: { url: result.downloadUrl }, mimetype: "audio/mp4",
+            contextInfo: { externalAdReply: { title: result.title, thumbnailUrl: result.thumbnail || "", mediaType: 1 } },
+          }, { quoted: msg });
           useLimit(sender, mp3Cost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ MP3 failed: ${e.message}`);
+          reply(`❌ YouTube MP3 failed: ${e.message}`);
         }
         break;
       }
@@ -3977,35 +2786,16 @@ showAdAttribution: false, } },
         if (mp4Lim !== "∞" && mp4Lim < mp4Cost) return reply(`❌ Not enough limit! Need *${mp4Cost}*, you have *${mp4Lim}*.`);
         await sock.sendMessage(jid, { react: { text: "⏱️", key: msg.key } });
         try {
-          let done = false;
-          // Tier 1: hub.ytconvert.org
-          try {
-            const result = await ytDlMp4(text, args[1] || "720");
-            await sock.sendMessage(jid, { video: { url: result.downloadUrl }, caption: `🎬 *${result.title}*` }, { quoted: msg });
-            done = true;
-          } catch {}
-          // Tier 2: ytdl-core direct
-          if (!done) {
-            const ytRes = await ytSearchFn(text, 1);
-            if (!ytRes.length) throw new Error("No results found.");
-            const info = await ytdl.getInfo(ytRes[0].url);
-            const dur = parseInt(info.videoDetails.lengthSeconds);
-            if (dur > 300) throw new Error("Video too long (max 5 min).");
-            const fmt = ytdl.chooseFormat(info.formats, { quality: "lowestvideo", filter: f => f.hasAudio && f.hasVideo });
-            if (!fmt) throw new Error("No suitable format.");
-            const chunks = [];
-            await new Promise((res, rej) => { const s = ytdl.downloadFromInfo(info, { format: fmt }); s.on("data", c => chunks.push(c)); s.on("end", res); s.on("error", rej); });
-            const buf = Buffer.concat(chunks);
-            if (buf.length > 64 * 1024 * 1024) throw new Error("File too large (>64MB).");
-            await sock.sendMessage(jid, { video: buf, caption: `🎬 *${info.videoDetails.title}*`, mimetype: "video/mp4" }, { quoted: msg });
-            done = true;
-          }
-          if (!done) throw new Error("All sources failed.");
+          const result = await ytDlMp4(text, args[1] || "720");
+          await sock.sendMessage(jid, {
+            video: { url: result.downloadUrl },
+            caption: `🎬 *${result.title}*`,
+          }, { quoted: msg });
           useLimit(sender, mp4Cost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ MP4 failed: ${e.message}`);
+          reply(`❌ YouTube MP4 failed: ${e.message}`);
         }
         break;
       }
@@ -4024,9 +2814,7 @@ showAdAttribution: false, } },
           if (!sp.downloadUrl) throw new Error("Download URL not found.");
           await sock.sendMessage(jid, {
             audio: { url: sp.downloadUrl }, mimetype: "audio/mp4",
-            contextInfo: { externalAdReply: { title: sp.title, body: sp.artists, thumbnailUrl: sp.thumbnail || "", mediaType: 1,
-            renderLargerThumbnail: true,
-showAdAttribution: false, } },
+            contextInfo: { externalAdReply: { title: sp.title, body: sp.artists, thumbnailUrl: sp.thumbnail || "", mediaType: 1 } },
           }, { quoted: msg });
           useLimit(sender, spCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
@@ -4048,14 +2836,7 @@ showAdAttribution: false, } },
           results.slice(0, 10).forEach((t, i) => {
             out += `${i + 1}. *${t.name}*\n   👤 ${t.artists}\n   ⏱️ ${t.duration || "?"} | 🔗 ${t.link}\n\n`;
           });
-          const spotifyThumb = results[0]?.thumbnail || results[0]?.image || "";
-          const spotifyPayload = await previewCard(out.trim(), {
-            title: `🎵 ${results[0]?.name || "Spotify Search"}`,
-            body: `👤 ${results[0]?.artists || ""} • ${results.length} results`,
-            thumbUrl: spotifyThumb || "https://storage.googleapis.com/pr-newsroom-wp/1/2018/11/Spotify_Logo_RGB_Green.png",
-            sourceUrl: results[0]?.link || "https://open.spotify.com",
-          });
-          await sock.sendMessage(jid, spotifyPayload, { quoted: msg });
+          reply(out.trim());
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
@@ -4123,11 +2904,11 @@ showAdAttribution: false, } },
           fonts.slice(0, 10).forEach((f, i) => {
             out += `${i + 1}. *${f.name}*\n   👤 ${f.author} | 📥 ${f.downloads}\n   🔗 ${f.download}\n\n`;
           });
-          await reply(out.trim());
+          reply(out.trim());
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          await reply(`❌ Dafont search failed: ${e.message}`);
+          reply(`❌ Dafont search failed: ${e.message}`);
         }
         break;
       }
@@ -4296,72 +3077,8 @@ showAdAttribution: false, } },
       }
 
       // ── Felo AI ───────────────────────────────────────────────────
-      case "felo":
-      case "feloai": {
-        if (!text) return reply(`📌 Example: ${prefix}felo What is the latest AI news?`);
-        initUserDB(sender, pushname);
-        const feloCost = getLimitCost("felo", 2);
-        const feloLim = checkLimit(sender, isOwner(sender));
-        if (feloLim !== "∞" && feloLim < feloCost) return reply(`❌ Not enough limit! Need *${feloCost}*, you have *${feloLim}*.`);
-        await sock.sendMessage(jid, { react: { text: "🌐", key: msg.key } });
-        try {
-          const client = new FeloClient();
-          const answer = await client.search(text);
-          const answerText = typeof answer === "string" ? answer : JSON.stringify(answer, null, 2);
-          const feloFullText = `🌐 *Felo AI Search*\n\n*Q:* ${text}\n\n${answerText}`;
-          const msxFelo = generateWAMessageFromContent(jid, {
-            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-              interactiveMessage: {
-                body: { text: feloFullText },
-                footer: { text: settings.botName ?? "Yuzuki MD" },
-                nativeFlowMessage: { buttons: [
-                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Answer", copy_code: answerText }) }
-                ]}
-              }
-            }}
-          }, { quoted: msg });
-          await sock.relayMessage(jid, msxFelo.message, { messageId: msxFelo.key.id });
-          useLimit(sender, feloCost, isOwner(sender));
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Felo AI error: ${e.message}`);
-        }
-        break;
-      }
 
       // ── ChatEx AI ─────────────────────────────────────────────────
-      case "chatex":
-      case "chatexai": {
-        if (!text) return reply(`📌 Example: ${prefix}chatex Hello, how are you?`);
-        initUserDB(sender, pushname);
-        const cxCost = getLimitCost("chatex", 1);
-        const cxLim = checkLimit(sender, isOwner(sender));
-        if (cxLim !== "∞" && cxLim < cxCost) return reply(`❌ Not enough limit! Need *${cxCost}*, you have *${cxLim}*.`);
-        await sock.sendMessage(jid, { react: { text: "💬", key: msg.key } });
-        try {
-          const answer = await chatex(text);
-          const cxFullText = `💬 *ChatEx AI*\n\n*Q:* ${text}\n\n${answer}`;
-          const msxCx = generateWAMessageFromContent(jid, {
-            viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-              interactiveMessage: {
-                body: { text: cxFullText },
-                footer: { text: settings.botName ?? "Yuzuki MD" },
-                nativeFlowMessage: { buttons: [
-                  { name: "cta_copy", buttonParamsJson: JSON.stringify({ display_text: "📋 Copy Response", copy_code: answer }) }
-                ]}
-              }
-            }}
-          }, { quoted: msg });
-          await sock.relayMessage(jid, msxCx.message, { messageId: msxCx.key.id });
-          useLimit(sender, cxCost, isOwner(sender));
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ ChatEx error: ${e.message}`);
-        }
-        break;
-      }
 
       // ── Group Protection Tools ────────────────────────────────────
       case "antilinkall":
@@ -4385,7 +3102,7 @@ showAdAttribution: false, } },
         const k = keyMap[command];
         gc.antilink[k] = !gc.antilink[k];
         setGroupData(jid, gc);
-        await reply(`${gc.antilink[k] ? "✅ Enabled" : "❌ Disabled"} *${command}* for this group.`);
+        reply(`${gc.antilink[k] ? "✅ Enabled" : "❌ Disabled"} *${command}* for this group.`);
         break;
       }
       case "setantilink": {
@@ -4397,7 +3114,7 @@ showAdAttribution: false, } },
         const gc = getGroupData(jid);
         gc.antilinkAction = mode;
         setGroupData(jid, gc);
-        await reply(`✅ Antilink action set to *${mode}*.`);
+        reply(`✅ Antilink action set to *${mode}*.`);
         break;
       }
       case "addtoxic":
@@ -4408,7 +3125,7 @@ showAdAttribution: false, } },
         let bw = [];
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
         if (!bw.includes(text.toLowerCase())) { bw.push(text.toLowerCase()); fs.writeFileSync(bwPath, JSON.stringify(bw)); }
-        await reply(`✅ Added *${text}* to bad words list.`);
+        reply(`✅ Added *${text}* to bad words list.`);
         break;
       }
       case "deltoxic":
@@ -4420,7 +3137,7 @@ showAdAttribution: false, } },
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
         bw = bw.filter((w) => w !== text.toLowerCase());
         fs.writeFileSync(bwPath, JSON.stringify(bw));
-        await reply(`✅ Removed *${text}* from bad words list.`);
+        reply(`✅ Removed *${text}* from bad words list.`);
         break;
       }
       case "listtoxic":
@@ -4429,45 +3146,27 @@ showAdAttribution: false, } },
         const bwPath = "./data/badwords.json";
         let bw = [];
         try { bw = JSON.parse(fs.readFileSync(bwPath, "utf8")); } catch {}
-        await reply(bw.length ? `🚫 *Bad Words List (${bw.length}):*\n\n${bw.map((w, i) => `${i + 1}. ${w}`).join("\n")}` : "✅ Bad words list is empty.");
+        reply(bw.length ? `🚫 *Bad Words List (${bw.length}):*\n\n${bw.map((w, i) => `${i + 1}. ${w}`).join("\n")}` : "✅ Bad words list is empty.");
         break;
       }
 
       // ── Welcome / Left group events (manual toggle) ───────────────
-      case "welcome": {
-        if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
-        if (!isOwner(sender)) return reply("❌ Owner only.");
-        const gc = getGroupData(jid);
-        gc.welcome = !gc.welcome;
-        setGroupData(jid, gc);
-        await reply(`${gc.welcome ? "✅ Welcome messages enabled." : "❌ Welcome messages disabled."}`);
-        break;
-      }
-      case "left": {
-        if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
-        if (!isOwner(sender)) return reply("❌ Owner only.");
-        const gc = getGroupData(jid);
-        gc.left = !gc.left;
-        setGroupData(jid, gc);
-        await reply(`${gc.left ? "✅ Leave messages enabled." : "❌ Leave messages disabled."}`);
-        break;
-      }
 
       // ── Extended group tools (. aliases) ───────────────────
       case "setnamegc": {
         if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!text) return reply(`📌 Usage: ${prefix}setname <new name>`);
-        try { await sock.groupUpdateSubject(jid, text); await reply(`✅ Group name updated to *${text}*.`); }
-        catch (e) { await reply(`❌ Failed: ${e.message}`); }
+        try { await sock.groupUpdateSubject(jid, text); reply(`✅ Group name updated to *${text}*.`); }
+        catch (e) { reply(`❌ Failed: ${e.message}`); }
         break;
       }
       case "setdescgc": {
         if (!jid.endsWith("@g.us")) return reply("❌ Group only.");
         if (!isOwner(sender)) return reply("❌ Owner only.");
         if (!text) return reply(`📌 Usage: ${prefix}setdesc <new description>`);
-        try { await sock.groupUpdateDescription(jid, text); await reply(`✅ Group description updated.`); }
-        catch (e) { await reply(`❌ Failed: ${e.message}`); }
+        try { await sock.groupUpdateDescription(jid, text); reply(`✅ Group description updated.`); }
+        catch (e) { reply(`❌ Failed: ${e.message}`); }
         break;
       }
       // ── Bot mode commands (. additions) ────────────────────
@@ -4475,7 +3174,7 @@ showAdAttribution: false, } },
       case "onlygroup": {
         if (!isOwner(sender)) return reply("❌ Owner only.");
         setSetting("mode", "group");
-        await reply("✅ Bot switched to *Group Only* mode.");
+        reply("✅ Bot switched to *Group Only* mode.");
         break;
       }
       case "onlypc":
@@ -4483,7 +3182,7 @@ showAdAttribution: false, } },
       case "onlypm": {
         if (!isOwner(sender)) return reply("❌ Owner only.");
         setSetting("mode", "private");
-        await reply("✅ Bot switched to *Private Only* mode.");
+        reply("✅ Bot switched to *Private Only* mode.");
         break;
       }
       
@@ -4506,150 +3205,6 @@ showAdAttribution: false, } },
 
 
       // ── .play — search by title, send audio + song list ─────────────
-      case "play": {
-        if (!text) return reply(`🎵 Usage: ${prefix}play <song title>\nExample: ${prefix}play Blinding Lights`);
-        initUserDB(sender, pushname);
-        const playCost = getLimitCost("play", 2);
-        const playLim = checkLimit(sender, isOwner(sender));
-        if (playLim !== "∞" && playLim < playCost) return reply(`❌ Not enough limit! Need *${playCost}*, you have *${playLim}*.`);
-        await sock.sendMessage(jid, { react: { text: "🔍", key: msg.key } });
-        try {
-          let results = [];
-          let downloaded = false;
-
-          // ── Tier 1: JioSaavn (320kbps, no key, most reliable) ──────────
-          try {
-            const saavnRes = await searchSaavn(text, 5);
-            if (saavnRes.length && saavnRes[0].url) {
-              const top = saavnRes[0];
-              await sock.sendMessage(jid, {
-                audio: { url: top.url }, mimetype: "audio/mpeg",
-                contextInfo: { externalAdReply: {
-                  title: top.title,
-                  body: `${top.artists}${top.album ? " • " + top.album : ""}`,
-                  thumbnailUrl: top.thumbnail || "", mediaType: 1,
-                  renderLargerThumbnail: true,
-showAdAttribution: false,
-                }},
-              }, { quoted: msg });
-              results = saavnRes.map(s => ({ title: s.title, artists: s.artists, url: s.url }));
-              downloaded = true;
-            }
-          } catch {}
-
-          // ── Tier 2: YouTube search + hub.ytconvert.org converter ────────
-          if (!downloaded) {
-            try {
-              const ytRes = await ytSearchFn(text, 5);
-              if (ytRes.length) {
-                const dl = await ytDlMp3(ytRes[0].url);
-                await sock.sendMessage(jid, {
-                  audio: { url: dl.downloadUrl }, mimetype: "audio/mp4",
-                  contextInfo: { externalAdReply: {
-                    title: dl.title, thumbnailUrl: dl.thumbnail || "", mediaType: 1,
-                    renderLargerThumbnail: true,
-showAdAttribution: false,
-                  }},
-                }, { quoted: msg });
-                results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
-                downloaded = true;
-              }
-            } catch {}
-          }
-
-          // ── Tier 3: ytdl-core direct download (final fallback) ──────────
-          if (!downloaded) {
-            const ytRes = await ytSearchFn(text, 3);
-            if (!ytRes.length) throw new Error("No results found for that song.");
-            const info = await ytdl.getInfo(ytRes[0].url);
-            const fmt = ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" });
-            if (!fmt) throw new Error("No audio format available.");
-            const chunks = [];
-            await new Promise((res, rej) => {
-              const s = ytdl.downloadFromInfo(info, { format: fmt });
-              s.on("data", c => chunks.push(c));
-              s.on("end", res);
-              s.on("error", rej);
-            });
-            const buf = Buffer.concat(chunks);
-            await sock.sendMessage(jid, {
-              audio: buf, mimetype: fmt.mimeType?.split(";")[0] || "audio/webm",
-              contextInfo: { externalAdReply: {
-                title: info.videoDetails.title,
-                body: info.videoDetails.author?.name || "",
-                thumbnailUrl: ytRes[0].thumbnail || "", mediaType: 1,
-                renderLargerThumbnail: true,
-showAdAttribution: false,
-              }},
-            }, { quoted: msg });
-            results = ytRes.map(v => ({ title: v.title, artists: v.author, url: v.url }));
-            downloaded = true;
-          }
-
-          if (!downloaded) throw new Error("All download sources failed. Try again later.");
-
-          // ── Show alternative song list ───────────────────────────────────
-if (results.length > 1) {
-  const rows = results.slice(0, 5).map((s, i) => ({
-    header: "",
-    title: `${i + 1}. ${(s.title || "Unknown").slice(0, 40)}`,
-    description: `👤 ${(s.artists || "Unknown Artist").slice(0, 50)}`,
-    id: `play_${i}`
-  }));
-
-  const msgx = generateWAMessageFromContent(jid, {
-    viewOnceMessage: {
-      message: {
-        messageContextInfo: {
-          deviceListMetadata: {},
-          deviceListMetadataVersion: 2,
-        },
-        interactiveMessage: {
-          body: {
-            text:
-              `🎵 *Song Results for:* _"${text}"_\n\n` +
-              `✅ Playing the top result automatically.\n` +
-              `📋 Choose another song below if needed.`
-          },
-          footer: {
-            text: "Powered by Yuzuki MD"
-          },
-          nativeFlowMessage: {
-            buttons: [
-              {
-                name: "single_select",
-                buttonParamsJson: JSON.stringify({
-                  title: "🎵 Choose Song",
-                  sections: [
-                    {
-                      title: "Search Results",
-                      rows
-                    }
-                  ]
-                })
-              }
-            ]
-          }
-        }
-      }
-    }
-  }, { quoted: msg });
-
-  await sock.relayMessage(
-    jid,
-    msgx.message,
-    { messageId: msgx.key.id }
-  );
-}
-
-          useLimit(sender, playCost, isOwner(sender));
-          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-        } catch (e) {
-          await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          reply(`❌ Play failed: ${e.message}`);
-        }
-        break;
-      }
 
       // ── .pindown — download a specific Pinterest pin URL ─────────────
       case "pindown":
@@ -4692,21 +3247,19 @@ if (results.length > 1) {
               title: top.title,
               body: `${top.artists}${top.album ? " • " + top.album : ""}`,
               thumbnailUrl: top.thumbnail || "", mediaType: 1,
-              renderLargerThumbnail: true,
-showAdAttribution: false,
             }},
           }, { quoted: msg });
           if (results.length > 1) {
             let list = `🎵 *More results for "${text}":*\n\n`;
             results.slice(1).forEach((s, i) => { list += `${i + 2}. *${s.title}* — ${s.artists}\n`; });
             list += `\n💡 Type *${prefix}saavn <exact title>* for a specific song.`;
-            await reply(list);
+            reply(list);
           }
           useLimit(sender, saavnCost, isOwner(sender));
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          await reply(`❌ Saavn failed: ${e.message}`);
+          reply(`❌ Saavn failed: ${e.message}`);
         }
         break;
       }
@@ -4724,11 +3277,11 @@ showAdAttribution: false,
             out += `*${i+1}.* ${t.title}\n👤 ${t.artists} | 💿 ${t.album || "?"} | ⏱ ${dur}\n\n`;
           });
           out += `💡 Use *${prefix}play <title>* or *${prefix}saavn <title>* to download full songs.`;
-          await reply(out.trim());
+          reply(out.trim());
           await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
         } catch (e) {
           await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-          await reply(`❌ Deezer search failed: ${e.message}`);
+          reply(`❌ Deezer search failed: ${e.message}`);
         }
         break;
       }
@@ -4764,6 +3317,52 @@ showAdAttribution: false,
         await sock.relayMessage(jid, msxInfo.message, { messageId: msxInfo.key.id });
         break;
       }
+
+
+    // ── msg-tricks: feature 4 ─────────────────────────────────────────────────
+    case "forward": {
+      if (!isOwner(senderJid, settings)) { await reply("Owner only."); break; }
+      const fwText = args.join(" ").trim();
+      if (!fwText) { await reply(`Usage: ${prefix}forward <text>`); break; }
+      const { sendForwarded } = await import("./lib/msg-tricks.js");
+      await sendForwarded(sock, jid, fwText, { score: 999 });
+      break;
+    }
+
+    case "announce": {
+      if (!isOwner(senderJid, settings)) { await reply("Owner only."); break; }
+      const annText = args.join(" ").trim();
+      if (!annText) { await reply(`Usage: ${prefix}announce <text>`); break; }
+      const { sendAnnouncementCard } = await import("./lib/msg-tricks.js");
+      const botName3 = settings.botName ?? "Yuzuki MD";
+      let annThumb;
+      try { const r = await fetch("https://qu.ax/RYgoy"); annThumb = Buffer.from(await r.arrayBuffer()); } catch {}
+      await sendAnnouncementCard(sock, jid, {
+        title: botName3,
+        body: annText,
+        footer: settings.channelName ?? botName3,
+        ctaLabel: "📢 Announcement",
+        ctaUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+        thumbnail: annThumb,
+        newsletterJid: settings.channelId ?? "120363406397452589@newsletter",
+        newsletterName: settings.channelName ?? botName3,
+      });
+      break;
+    }
+
+    case "adreply": {
+      if (!isOwner(senderJid, settings)) { await reply("Owner only."); break; }
+      const adTitle = args[0] ?? "Yuzuki MD";
+      const adText  = args.slice(1).join(" ").trim() || "Check this out!";
+      const { sendAdReply } = await import("./lib/msg-tricks.js");
+      await sendAdReply(sock, jid, adText, {
+        title: adTitle,
+        body: settings.botName ?? "Yuzuki MD",
+        sourceUrl: "https://github.com/KyokaAizen665/Yuzuki-Md-V2",
+        renderLargerThumbnail: true,
+      });
+      break;
+    }
 
       default: {
       const cases = getCases().filter((c) => c.active);

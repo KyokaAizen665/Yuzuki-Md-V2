@@ -1,31 +1,9 @@
-// ── Auto-install missing npm packages ─────────────────────────────────────────
-// Uses only Node builtins (child_process, fs) — always available.
-// Runs npm install if any key dependency is missing so the panel never crashes
-// on a missing package after git pull.
-import { execSync }   from "child_process";
-import { existsSync } from "fs";
-
-// Packages that panel installs commonly skip — if any are missing, run npm install
-const _KEY_PKGS = ["chalk", "pino", "axios", "dotenv", "figlet", "cheerio", "moment-timezone", "yt-search", "file-type", "jimp", "lodash"];
-if (_KEY_PKGS.some(p => !existsSync(`./node_modules/${p}`))) {
-  console.log("[*] Missing packages detected — running npm install...");
-  try {
-    execSync("npm install --no-audit --no-fund --loglevel=error", { stdio: "inherit" });
-    console.log("[+] Dependencies installed successfully.\n");
-  } catch (e) {
-    console.error("[!] npm install encountered errors (bot will still try to start):", e.message);
-  }
-}
-
 // Load .env if available (graceful — panels inject vars directly, no .env needed)
 try { await import("dotenv/config"); } catch {}
-
-// Graceful chalk — falls back to a pass-through proxy if not installed
-function _mkChalk() { const f = (...a) => String(a[0] ?? ""); return new Proxy(f, { get: () => _mkChalk() }); }
-let chalk;
-try { chalk = (await import("chalk")).default; } catch { chalk = _mkChalk(); }
+import chalk from "chalk";
 import "./server.js";
 import { startBot, logger } from "./bot.js";
+import { startMemoryMonitor } from "./lib/memory-monitor.js";
 
 // ── Validate Node version ─────────────────────────────────────────────────────
 const nodeVersion = parseInt(process.version.slice(1));
@@ -62,16 +40,7 @@ function printBanner() {
 
 printBanner();
 
-// Headless env check — warn early if PHONE_NUMBER is missing and stdin is not interactive
-const _phoneEnvCheck = (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
-if (!_phoneEnvCheck && !process.stdin.isTTY) {
-  console.warn(
-    `\n⚠️  WARNING: PHONE_NUMBER is not set and stdin is not interactive.\n` +
-    `   The bot cannot pair a device without a phone number.\n` +
-    `   Set PHONE_NUMBER=<digits only> in your environment variables.\n`
-  );
-}
-
+startMemoryMonitor();
 startBot().catch((err) => {
   logger.error({ err }, "Fatal error starting bot");
   setTimeout(() => process.exit(1), 2000);
@@ -92,7 +61,19 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
+// FIX: Don't exit immediately on unhandledRejection — many libraries (including
+// Baileys / ws / node-fetch) emit transient rejections that are non-fatal.
+// Log the reason; only exit if it looks like a hard crash (Error instance with
+// an exit-worthy code). Continuing keeps the WhatsApp session alive.
 process.on("unhandledRejection", (reason) => {
-  logger.error({ reason }, "Unhandled rejection — shutting down");
-  process.exit(1);
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  logger.error({ reason }, `Unhandled rejection — ${msg}`);
+  // Exit only on memory errors or explicit exit signals
+  if (
+    reason instanceof Error &&
+    (reason.code === "ERR_OUT_OF_MEMORY" || msg.includes("out of memory"))
+  ) {
+    process.exit(1);
+  }
+  // Otherwise: log and continue — bot stays connected
 });

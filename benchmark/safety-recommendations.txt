@@ -1,0 +1,182 @@
+════════════════════════════════════════════════════════════════════════════════
+  YUZUKI FRAMEWORK — Plugin Marketplace Safety Recommendations
+  Generated: 2026-06-13 17:27:45
+════════════════════════════════════════════════════════════════════════════════
+
+  Severity legend:  🔴 HIGH — must fix before enabling marketplace
+                    🟠 MEDIUM — fix before v1.0 release
+                    🟡 LOW — informational, fix when convenient
+                    ✅ GOOD — no action needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  §1  CRITICAL FIXES (HIGH severity)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🔴 R1 — Add alias-conflict detection in registerCommand()
+
+     Problem: registerCommand() uses commands.set(alias, cmd) which silently
+     overwrites any existing command that was registered under that same key,
+     whether as a primary name or as another plugin's alias. The first plugin
+     loses its alias binding with no log, no error, and no rollback.
+
+     Fix (lib/registry.js):
+       Before setting each alias, check commands.has(alias):
+         if (commands.has(alias)) {
+           const existing = commands.get(alias);
+           logger.warn(`[Registry] alias "${alias}" conflict: ` +
+             `"${cmd.name}" conflicts with "${existing.name}" — alias skipped`);
+           continue;  // or throw if strict mode desired
+         }
+         commands.set(alias, cmd);
+
+     Impact: prevents silent alias theft, primary-name shadowing, and
+     getAllCommands() duplicate corruption.
+
+  ─────────────────────────────────────────────────────────────────────────
+
+  🔴 R2 — Pre-flight alias validation in install() before writing to disk
+
+     Problem: installer.js checks pluginManifest.has(name) and
+     pluginManager.getPlugin(name) but does NOT check:
+       • Whether the incoming plugin's NAME matches an existing alias.
+       • Whether the incoming plugin's ALIASES conflict with existing
+         primary names or aliases.
+     These conflicts are only discovered after the file is written to disk,
+     at which point the registry may already be partially corrupted.
+
+     Fix (installer.js, after validateAll(), before fs.writeFileSync()):
+       // Check incoming name against all existing registry entries
+       const nameConflict = reg.getCommand(name);
+       if (nameConflict && nameConflict.name !== name && !opts.force) {
+         return { ok: false, error: `Name "${name}" conflicts with alias of ` +
+           `"${nameConflict.name}"`, phase: "collision" };
+       }
+       // Check each incoming alias
+       for (const alias of meta.aliases ?? []) {
+         const aliasConflict = reg.getCommand(alias);
+         if (aliasConflict && !opts.force) {
+           return { ok: false, error: `Alias "${alias}" conflicts with ` +
+             `"${aliasConflict.name}"`, phase: "collision" };
+         }
+       }
+
+     Impact: prevents writing broken plugin files to disk before detecting conflicts.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  §2  MEDIUM FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🟠 R3 — Resolve aliases in checkDependencies()
+
+     Problem: checkDependencies() does this._plugins.has(dep). The _plugins
+     Map is keyed by primary name only. If a plugin author declares a
+     dependency by alias name (e.g. "dependencies: ['ut']" for a plugin
+     whose primary name is "uptime"), the dep check always fails even though
+     the plugin is loaded.
+
+     Fix (plugin-manager.js):
+       const missing = plugin.dependencies.filter(dep =>
+         !this._plugins.has(dep) && !this._aliases.has(dep)
+       );
+     This allows both "uptime" and "ut" to satisfy the dependency.
+
+  ─────────────────────────────────────────────────────────────────────────
+
+  🟠 R4 — Fix prototype pollution scanner gap
+
+     Problem: validateSource() pattern for prototype pollution:
+       /__proto__\s*=|Object\.setPrototypeOf\s*\(\s*\w+\s*,\s*null\s*\)/
+     This only catches setPrototypeOf(x, null). setPrototypeOf(x, attacker)
+     is not caught, allowing prototype pollution with a custom object.
+
+     Fix (validator.js):
+       Change the setPrototypeOf pattern to:
+         /Object\.setPrototypeOf\s*\(/,
+       This blocks any use of setPrototypeOf (legitimate use in plugins is rare).
+       Or widen to flag it as a warning (not block) if you want to allow it
+       in trusted contexts.
+
+  ─────────────────────────────────────────────────────────────────────────
+
+  🟠 R5 — PluginManifest.set() forces bundled=false — dead code in uninstall()
+
+     Problem: uninstall() checks entry.bundled to protect core plugins.
+     But manifest.set() unconditionally overwrites bundled to false:
+       { ...entry, name, bundled: false }
+     So any entry written via set() can always be uninstalled.
+     The bundled guard only works if entries are hand-seeded in the JSON file.
+
+     Fix: Two options:
+       A) Remove the bundled override in set() — respect the caller's value.
+       B) Seed bundled plugins in plugin-registry.json at build time so
+          set() is never called for them (current implicit assumption).
+     Option A is simpler. Document that bundled=true entries must be
+     created at build time and never overwritten via set().
+
+  ─────────────────────────────────────────────────────────────────────────
+
+  🟠 R6 — uninstall() filePath resolution is cwd-dependent
+
+     Problem: installer.js stores filePath as path.relative(projectRoot, absPath).
+     uninstall() calls path.resolve(entry.filePath) which resolves relative to
+     process.cwd(). If cwd !== project root, the delete targets the wrong file.
+
+     Fix (installer.js, in uninstall()):
+       const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+       const absPath = path.resolve(ROOT, entry.filePath);
+     This makes the resolution project-root-relative regardless of cwd.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  §3  LOW / INFORMATIONAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🟡 R7 — Add vm.Script().runInNewContext() to security scanner
+
+     The vm scanner catches vm.createContext and vm.runIn* but misses:
+       new vm.Script('evil').runInNewContext(ctx)
+     Add pattern: /new\s+vm\.Script\s*\(/
+
+  🟡 R8 — Document that dependencies must use primary names (not aliases)
+
+     checkDependencies() checks _plugins.has(dep). Plugin authors must
+     declare deps by the exact primary name. Add a warning in loadPlugin()
+     when a dep name matches a known alias (suggesting the correct primary).
+
+  🟡 R9 — Add semver range validation for plugin dependencies
+
+     No version range checking (e.g. "dep@>=2.0"). Currently version is
+     stored but never compared against requirements. Low priority until
+     the marketplace has a sufficient plugin count to make versioning important.
+
+  🟡 R10 — No circular dependency detection
+
+     A plugin can declare a self-referential or circular dep chain and pass
+     checkDependencies() if the plugins are already loaded in the right order.
+     Low severity — the loader is sequential and will simply fail to load
+     the first plugin in any cycle. Document this limitation.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  §4  WHAT IS ALREADY WELL IMPLEMENTED ✅
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✅ Two-phase validation (static scan + dynamic schema check)
+  ✅ 14+ security patterns in static scanner (eval, new Function, child_process,
+     process.exit/kill, spawn/execSync, vm, fs-write-to-protected-files)
+  ✅ Temp file cleanup after schema validation (no stale files)
+  ✅ Backup/restore/cleanup rollback chain for updates
+  ✅ SHA-256 integrity hashing for change detection
+  ✅ Manifest persistence with version field
+  ✅ installedAt preserved across updates
+  ✅ Error isolation: broken plugin never crashes the bot
+  ✅ Enable/disable toggle without unloading
+  ✅ Hot-reload with cache busting (?t= query parameter)
+  ✅ Alias → primary name reverse lookup in pluginManager (_aliases Map)
+  ✅ External plugins isolated to src/plugins/external/ directory
+  ✅ Plugin loader skips _prefixed temp files
+  ✅ unregisterCommand: fully cleans up primary + aliases + categoryIndex + disabledSet
+  ✅ Registry idempotent re-registration (duplicate primary name = overwrite)
+  ✅ Bundled plugin update protection (cannot update via updater.js)
+
+════════════════════════════════════════════════════════════════════════════════
+  End of Safety Recommendations
+════════════════════════════════════════════════════════════════════════════════

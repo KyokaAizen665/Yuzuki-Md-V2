@@ -28,6 +28,7 @@ export function initUserDB(senderJid, pushName = "User") {
   const db = loadDB();
   const today = new Date().toISOString().slice(0, 10);
 
+  // Daily limit reset
   if (!db.settings) db.settings = {};
   if (db.settings.lastResetLimit !== today) {
     for (const jid in db.users) {
@@ -46,9 +47,8 @@ export function initUserDB(senderJid, pushName = "User") {
     db.users[senderJid] = {
       level: 0, exp: 0, money: 0, bank: 0, health: 100,
       limitfree: 15, limitprem: 0, limitbuy: 0,
-      lastmining: 0, lastdungeon: 0, lastwork: 0, lastdaily: 0,
+      lastmining: 0, lastdungeon: 0,
       name: pushName, registered: false, premium: false,
-      bio: "", badges: [], msgCount: 0, redeemedKeys: [],
     };
   } else {
     const u = db.users[senderJid];
@@ -62,14 +62,7 @@ export function initUserDB(senderJid, pushName = "User") {
     if (typeof u.limitbuy !== "number") u.limitbuy = 0;
     if (typeof u.lastmining !== "number") u.lastmining = 0;
     if (typeof u.lastdungeon !== "number") u.lastdungeon = 0;
-    if (typeof u.lastwork !== "number") u.lastwork = 0;
-    if (typeof u.lastdaily !== "number") u.lastdaily = 0;
     if (!u.name) u.name = pushName;
-    // New fields — backward compat
-    if (typeof u.bio !== "string") u.bio = "";
-    if (!Array.isArray(u.badges)) u.badges = [];
-    if (typeof u.msgCount !== "number") u.msgCount = 0;
-    if (!Array.isArray(u.redeemedKeys)) u.redeemedKeys = [];
   }
 
   saveDB(db);
@@ -103,18 +96,20 @@ export function useLimit(senderJid, cost, isOwner) {
   const db = loadDB();
   const u = db.users[senderJid];
   if (!u) return;
+
   let remaining = cost;
+  // Deduct from prem first, then free
   const fromPrem = Math.min(u.limitprem || 0, remaining);
   u.limitprem -= fromPrem;
   remaining -= fromPrem;
   const fromFree = Math.min(u.limitfree || 0, remaining);
   u.limitfree -= fromFree;
+
   saveDB(db);
 }
 
-// ── XP / level / coin helpers ─────────────────────────────────────────────────
+// ── XP / level / coin helpers (feature 7 – Level-Up Card Generator) ───────────
 
-// XP required to advance from the given level to the next
 function xpToNext(level) {
   return (level + 1) * 100;
 }
@@ -122,13 +117,13 @@ function xpToNext(level) {
 function _checkBadges(u) {
   if (!Array.isArray(u.badges)) u.badges = [];
   const checks = [
-    [u.level >= 5,                     "⭐ Rising Star"],
-    [u.level >= 10,                    "🔥 Veteran"],
-    [u.level >= 25,                    "💎 Elite"],
-    [u.level >= 50,                    "👑 Legend"],
-    [(u.money || 0) >= 1000,           "💰 Rich"],
-    [(u.msgCount || 0) >= 100,         "💬 Chatterbox"],
-    [(u.msgCount || 0) >= 500,         "📢 Loudmouth"],
+    [u.level >= 5,  "⭐ Rising Star"],
+    [u.level >= 10, "🔥 Veteran"],
+    [u.level >= 25, "💎 Elite"],
+    [u.level >= 50, "👑 Legend"],
+    [(u.money || 0) >= 1000, "💰 Rich"],
+    [(u.msgCount || 0) >= 100, "💬 Chatterbox"],
+    [(u.msgCount || 0) >= 500, "📢 Loudmouth"],
     [u.registered === true && !u.badges.includes("🌱 Newcomer"), "🌱 Newcomer"],
   ];
   for (const [cond, badge] of checks) {
@@ -136,10 +131,6 @@ function _checkBadges(u) {
   }
 }
 
-/**
- * Award XP to a user. Handles level-ups and badge grants.
- * Returns { leveled: bool, oldLevel: number, newLevel: number, user: object }
- */
 export function addXP(senderJid, amount, pushName = "User") {
   const db = loadDB();
   if (!db.users[senderJid] || typeof db.users[senderJid] !== "object") {
@@ -154,11 +145,9 @@ export function addXP(senderJid, amount, pushName = "User") {
   const u = db.users[senderJid];
   if (!Array.isArray(u.badges)) u.badges = [];
   if (typeof u.msgCount !== "number") u.msgCount = 0;
-
   u.exp = (u.exp || 0) + amount;
   u.msgCount += 1;
-  u.name = pushName; // keep name fresh
-
+  u.name = pushName;
   const oldLevel = u.level || 0;
   let leveled = false;
   while (u.exp >= xpToNext(u.level || 0)) {
@@ -166,15 +155,11 @@ export function addXP(senderJid, amount, pushName = "User") {
     u.level = (u.level || 0) + 1;
     leveled = true;
   }
-
   _checkBadges(u);
   saveDB(db);
   return { leveled, oldLevel, newLevel: u.level, user: u };
 }
 
-/**
- * Add coins to a user. Returns new balance.
- */
 export function addCoins(senderJid, amount) {
   const db = loadDB();
   const u = db.users[senderJid];
@@ -185,9 +170,6 @@ export function addCoins(senderJid, amount) {
   return u.money;
 }
 
-/**
- * Spend coins. Returns true on success, false if insufficient funds.
- */
 export function spendCoins(senderJid, amount) {
   const db = loadDB();
   const u = db.users[senderJid];
@@ -197,10 +179,6 @@ export function spendCoins(senderJid, amount) {
   return true;
 }
 
-/**
- * Returns sorted leaderboard array [ { jid, ...userData } ]
- * sorted by level DESC then exp DESC.
- */
 export function getLeaderboard(limit = 10) {
   const db = loadDB();
   return Object.entries(db.users)
@@ -210,9 +188,6 @@ export function getLeaderboard(limit = 10) {
     .slice(0, limit);
 }
 
-/**
- * Returns rank position (1-indexed) of a jid among registered users.
- */
 export function getRankPosition(senderJid) {
   const db = loadDB();
   const sorted = Object.entries(db.users)

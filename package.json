@@ -1,7 +1,7 @@
 {
   "name": "Yuzuki",
   "version": "2.0.0",
-  "description": "Yuzuki MD Version 2 Upgraded",
+  "description": "Yuzuki MD",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -22,11 +22,11 @@
     "axios": "^0.24.0",
     "axios-cookiejar-support": "^6.0.5",
     "cfonts": "^3.3.1",
-    "chalk": "^4.1.2",
+    "chalk": "^5.6.2",
     "cheerio": "^1.2.0",
     "cloudscraper": "^4.6.0",
-    "colors": "^1.4.0",
     "libsignal": "^2.0.1",
+    "colors": "^1.4.0",
     "dotenv": "^16.6.1",
     "figlet": "^1.11.0",
     "file-type": "^16.5.4",

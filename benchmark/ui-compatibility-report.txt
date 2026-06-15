@@ -1,0 +1,105 @@
+UI SYSTEMS COMPATIBILITY REPORT
+Generated: 2026-06-13T18:07:38.090Z
+══════════════════════════════════════════════════════════════════════
+
+SUMMARY
+  Total tests    : 292
+  Passed         : 292 (100%)
+  Failed         : 0
+  Issues found   : 0
+  Warnings       : 0
+  Fallbacks      : 5
+
+SYSTEMS TESTED (24 phases)
+  ✓ Command Registry            — CRUD, alias conflict, enable/disable, search
+  ✓ CATEGORY_META               — icon/title completeness for all keys
+  ✓ Menu Builder                — buildMain, buildSub, buildCommandHelp, buildMenuRows
+  ✓ Button Factories            — copyButton, urlButton, selectButton, quickReply
+  ✓ buildContent                — viewOnce interactiveMessage payload
+  ✓ sendCard                    — happy path + graceful fallback
+  ✓ helpCard                    — metadata-driven overview
+  ✓ categoryCard                — valid/invalid/overflow (MAX_ROWS cap)
+  ✓ commandCard / pluginCard    — field rendering, prefix substitution
+  ✓ searchCard                  — results found + no-results fallback
+  ✓ didYouMeanCard              — suggestion select + empty suggestions
+  ✓ allMenuCarousel             — carousel + forced fallback
+  ✓ pluginDetailCard            — full metadata, related commands
+  ✓ workflowCard                — registered + unregistered
+  ✓ workflowListCard            — populated + empty
+  ✓ gameCard                    — found/not-found, player range, rewards
+  ✓ gameListCard                — populated + empty
+  ✓ leaderboardCard             — medals, win rate, empty fallback
+  ✓ playerStatsCard             — full stats + no-stats fallback
+  ✓ utils/ui.js                 — card, toast, toggle, listCard, progress, previewCard
+  ✓ message-engine/cards.js     — all template cards + loadingSequence
+  ✓ WhatsApp compatibility      — MAX_ROWS cap, row field validation
+  ✓ Socketon compatibility       — viewOnceMessage + deviceListMetadataVersion=2
+  ✓ Help plugin routing         — end-to-end dispatch (6 modes tested)
+
+BUGS FOUND AND FIXED DURING VALIDATION
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  BUG-01 (HIGH) — registry.js: unregisterCommand wipes unrelated     │
+  │                  primaries when a conflicted alias is in cmd.aliases │
+  ├─────────────────────────────────────────────────────────────────────┤
+  │  Root cause:                                                         │
+  │    unregisterCommand() iterated cmd.aliases and called               │
+  │    commands.delete(alias) unconditionally.  When an alias had been   │
+  │    SKIPPED at registration time (conflict with an existing primary), │
+  │    it was never inserted into the commands Map — but the Map DID     │
+  │    hold an entry for that key belonging to the primary command.      │
+  │    Blind deletion therefore removed the primary's entry, making it   │
+  │    invisible to getCommand() / getAllCommands() / searchCommands().   │
+  │                                                                      │
+  │  Impact:                                                             │
+  │    Any plugin that registers an alias matching another plugin's      │
+  │    primary name, then unregisters itself, silently deletes the       │
+  │    victim command from the registry for the remainder of the         │
+  │    process lifetime.  Help menus, category cards, and search all     │
+  │    showed missing commands with no error.                            │
+  │                                                                      │
+  │  Fix applied (src/lib/registry.js):                                  │
+  │    for (const alias of cmd.aliases) {                                │
+  │      if (commands.get(alias) === cmd) commands.delete(alias);        │
+  │    }                                                                 │
+  │    Guard ensures only aliases that actually point to the command     │
+  │    being removed are deleted.                                        │
+  │                                                                      │
+  │  Regression test added: Phase 1 "BUG-FIX regression" block (3 tests)│
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  BUG-02 (LOW/WA-05) — interactive.js: copyButton stores copy_code   │
+  │                        as the raw JS type instead of a string        │
+  ├─────────────────────────────────────────────────────────────────────┤
+  │  Root cause:                                                         │
+  │    copyButton(label, textToCopy) passed textToCopy directly into     │
+  │    JSON.stringify without coercion.  WhatsApp's NativeFlow spec      │
+  │    requires copy_code to be a JSON string; passing a number or       │
+  │    boolean causes the interactive message to be silently dropped by  │
+  │    WA servers (no delivery, no error receipt).                       │
+  │                                                                      │
+  │  Fix applied (src/message-engine/interactive.js):                    │
+  │    copy_code: String(textToCopy)                                     │
+  │                                                                      │
+  │  Regression tests added: Phase 22 WA-05 block (2 tests)             │
+  └─────────────────────────────────────────────────────────────────────┘
+
+WHATSAPP COMPATIBILITY NOTES
+  • MAX_ROWS = 10 per single_select section (enforced via .slice(0,10))
+  • Row objects: title (required), rowId (required), description (optional, ≤72 chars)
+  • urlButton: merchant_url required (set to same value as url) ✓
+  • copyButton: copy_code always coerced to String (WA-05 fix applied) ✓
+  • deviceListMetadataVersion = 2 required for NativeFlow messages ✓
+  • viewOnceMessage wrapper required for interactiveMessage delivery ✓
+
+SOCKETON/FOCASHI COMPATIBILITY
+  • generateWAMessageFromContent called with standard viewOnceMessage content ✓
+  • prepareWAMessageMedia used only for image headers (carousel, menu) ✓
+  • sock.relayMessage used (not sock.sendMessage) for all NativeFlow cards ✓
+  • All cards fall back to sock.sendMessage on relayMessage failure ✓
+
+DEPRECATED MODULES
+  • src/menuImage.js — canvas-based image menu — superseded by NativeFlow carousel.
+    File kept as tombstone. Safe to delete. Not tested (no imports found).
+
+No open issues. All identified bugs have been fixed and covered by regression tests.

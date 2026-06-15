@@ -1,0 +1,294 @@
+
+════════════════════════════════════════════════════════════════════════
+ Yuzuki Framework — Startup & Runtime Stress Benchmark
+ Node v20.20.0  |  2026-06-13T15:08:10.264Z
+════════════════════════════════════════════════════════════════════════
+ Baseline heap: 4 MB  |  RSS: 45.6 MB
+
+════════════════════════════════════════════════════════════════════════
+║ ──────────────────── PHASE 0 — Cold-Import Timing ──────────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Importing framework layers
+  │  lib/registry                             6.96 ms
+  │  plugin-manager                           6.63 ms
+  │  workflows/states                         4.16 ms
+  │  workflows/manager                       11.08 ms
+  │  games/engine                            20.02 ms
+  │  games/leaderboard                        0.26 ms
+  │  agent/queue                              8.63 ms
+  │  agent/memory                             3.19 ms
+  │  lib/menu-builder                         3.91 ms
+  │  lib/game-store                           0.17 ms
+  └────────────────────────────────────────────────────────────────────
+  │  TOTAL cold-import time                   65.0 ms
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ──────────────────── PHASE 1 — Registry Benchmark ──────────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Bulk registration — 100 plugins (300 total entries incl. aliases)
+  │  Registration time (total)                0.19 ms
+  │  Registration time (per cmd)            0.0019 ms/cmd
+  │  Throughput                             514316 regs/s
+  │  Commands in registry                      100 
+  │  Heap delta                                0.1 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk registration — 500 plugins (1500 total entries incl. aliases)
+  │  Registration time (total)                0.45 ms
+  │  Registration time (per cmd)            0.0009 ms/cmd
+  │  Throughput                            1121926 regs/s
+  │  Commands in registry                      500 
+  │  Heap delta                                0.3 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk registration — 1000 plugins (3000 total entries incl. aliases)
+  │  Registration time (total)                1.52 ms
+  │  Registration time (per cmd)            0.0015 ms/cmd
+  │  Throughput                             656279 regs/s
+  │  Commands in registry                     1000 
+  │  Heap delta                                0.4 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Lookup benchmark — 500 plugins registered
+  │  getCommand() per call                  0.0003 ms
+  │  Lookup throughput                     2964474 ops/s
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Alias lookup — via alias key
+  │  getCommand(alias) per call             0.0003 ms
+  │  Alias lookup throughput               3931436 ops/s
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Full-text search — 500 commands in registry
+  │  search("bench") common prefix  (many hits)      0.448 ms  hits:20
+  │  search("download") description   (few hits)      1.810 ms  hits:0
+  │  search("xyz_zz99") no-match query (zero hits)      0.381 ms  hits:0
+  │  search("bc500") exact alias    (1 hit)      0.802 ms  hits:10
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ getCategoryIndex() — full rebuild at 500 cmds
+  │  getCategoryIndex() total (200x)         11.89 ms
+  │  getCategoryIndex() per call            0.0594 ms/call
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ getCommandsByCategory() — filter at 500 cmds
+  │  getCommandsByCategory() total           28.02 ms
+  │  per call                                0.056 ms/call
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ─────────── PHASE 2 — Plugin Manager (In-Memory Pipeline) ──────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ In-memory validate + register — 50 plugins
+  │  Total pipeline time                      0.99 ms
+  │  Per-plugin time                         0.020 ms/plugin
+  │  Throughput                              50505 plugins/s
+  │  Manager plugin count                       50 
+  │  Heap delta                                0.2 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ In-memory validate + register — 200 plugins
+  │  Total pipeline time                      3.26 ms
+  │  Per-plugin time                         0.016 ms/plugin
+  │  Throughput                              61350 plugins/s
+  │  Manager plugin count                      200 
+  │  Heap delta                               -2.6 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ In-memory validate + register — 500 plugins
+  │  Total pipeline time                      15.1 ms
+  │  Per-plugin time                         0.030 ms/plugin
+  │  Throughput                              33113 plugins/s
+  │  Manager plugin count                      500 
+  │  Heap delta                               -0.6 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Metadata validation cost (1000 iterations)
+  │  validateMetadata() per call            0.0009 ms/call
+  │  Throughput                            1141829 validations/s
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ──────────────── PHASE 3 — Workflow Engine Benchmark ───────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Bulk workflow registration — 10 workflows
+  │  Registration time (total)                0.02 ms
+  │  Per-workflow time                      0.0020 ms/wf
+  │  Throughput                             500000 wfs/s
+  │  Registered workflow count                  10 
+  │  Heap delta                                  0 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk workflow registration — 50 workflows
+  │  Registration time (total)                0.03 ms
+  │  Per-workflow time                      0.0006 ms/wf
+  │  Throughput                            1666667 wfs/s
+  │  Registered workflow count                  50 
+  │  Heap delta                                  0 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk workflow registration — 100 workflows
+  │  Registration time (total)                0.16 ms
+  │  Per-workflow time                      0.0016 ms/wf
+  │  Throughput                             625000 wfs/s
+  │  Registered workflow count                 100 
+  │  Heap delta                                  0 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ getWorkflowInfo() lookup — 100 workflows
+  │  getWorkflowInfo() per call             0.0022 ms/call
+  │  Throughput                             459599 ops/s
+  └────────────────────────────────────────────────────────────────────
+  │  listWorkflows() per call (100 wfs)     0.0031 ms/call
+  │  Throughput                             320902 ops/s
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ────────────────── PHASE 4 — Games Engine Benchmark ────────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Bulk game registration — 10 games
+  │  Registration time (total)                 0.3 ms
+  │  Per-game time                          0.0300 ms/game
+  │  Throughput                              33333 games/s
+  │  Registered game count                      10 
+  │  Heap delta                                0.1 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk game registration — 50 games
+  │  Registration time (total)                0.11 ms
+  │  Per-game time                          0.0022 ms/game
+  │  Throughput                             454545 games/s
+  │  Registered game count                      50 
+  │  Heap delta                                  0 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Bulk game registration — 100 games
+  │  Registration time (total)                0.97 ms
+  │  Per-game time                          0.0097 ms/game
+  │  Throughput                             103093 games/s
+  │  Registered game count                     100 
+  │  Heap delta                                0.3 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Game query operations — 100 games registered
+  │  getGame()    per call                  0.0008 ms/call
+  │  hasGame()    per call                  0.0011 ms/call
+  │  listGames()  per call                  0.0004 ms/call
+  │  listGames() throughput                2438864 ops/s
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ──────────────── PHASE 5 — Agent Task Queue Benchmark ──────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Job enqueue — 100 jobs
+  │  Enqueue time (100 jobs)                   1.4 ms
+  │  Per-job enqueue time                   0.0140 ms/job
+  │  Throughput                              71429 enqueues/s
+  │  Queue size (total jobs)                   100 jobs
+  │  Heap delta                                0.2 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Queue query operations
+  │  getJobsForJid() per call               0.0008 ms/call
+  │  _running counter read                       0 ms/call
+  │  getJobsForJid throughput              1296699 ops/s
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ────────────── PHASE 6 — Agent Session Memory Benchmark ────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ set() — 10,000 keys on one JID
+  │  set() total                               8.2 ms
+  │  set() per key                          0.0008 ms/key
+  │  Throughput                            1219882 sets/s
+  │  Heap delta                                1.4 MB
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ get() — 10,000 keys
+  │  get() per key                          0.0005 ms/key
+  │  Throughput                            2040416 gets/s
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ pushHistory() — 1 000 entries (capped at 20)
+  │  pushHistory() per call                 0.0067 ms/call
+  │  Throughput                             148473 ops/s
+  │  History length (cap=20)                    20 entries
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ─────────────────── PHASE 7 — Combined Stress Test ─────────────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ┌─ Simulating: 500 plugins + 100 workflows + 100 games simultaneously
+  │  Plugin registration (500)                0.47 ms
+  │  Workflow registration (100)              0.03 ms
+  │  Game registration (100)                  0.14 ms
+  │  Total setup time                         0.86 ms
+  │  Total heap increase                       0.7 MB
+  │  Total RSS increase                        0.1 MB
+  │  Registry size                             500 cmds
+  │  Workflow count                            100 wfs
+  │  Game count                                100 games
+  └────────────────────────────────────────────────────────────────────
+
+  ┌─ Query performance under full load
+  │  getAllCommands() at 500 cmds           0.3123 ms/call
+  │  searchCommands() at 500 cmds           0.1971 ms/call
+  │  listWorkflows() at 100 wfs             0.0004 ms/call
+  │  listGames() at 100 games               0.0003 ms/call
+  └────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+║ ───────────── PHASE 8 — Bottleneck & Optimization Report ───────────── ║
+════════════════════════════════════════════════════════════════════════
+
+  ✅ No thresholds breached — framework performs within spec.
+
+
+  📋 Optimization Recommendations:
+
+  🔴 [High] Registry — getCategoryIndex()
+       Issue: Rebuilds the full Map→Array→Object on every call. Called by helpCard, nativeflow, and search on every user request.
+       Fix:   Cache the index object and invalidate on registerCommand/unregisterCommand. ~90% speedup for repeated calls.
+
+  🔴 [High] Registry — getCommandsByCategory()
+       Issue: Calls getAllCommands() (O(n) Set dedup) then filters (O(n)). Double-linear at every category menu render.
+       Fix:   Use categoryIndex Map directly — it already stores primary names per category. Replace with: return [...categoryIndex.get(cat)] .map(name => commands.get(name)).
+
+  🔴 [High] Registry — getAllCommands()
+       Issue: new Set(commands.values()) allocates a full Set on every call. Called by search, category filter, and menu.
+       Fix:   Maintain a separate primaryNames Set updated on register/unregister. getAllCommands() returns [...primaryNames].map(n => commands.get(n)).
+
+  🟡 [Medium] Games Engine — listGames()
+       Issue: [...this._games.keys()] spreads the Map into a new Array on every call. Called by gameListCard, leaderboard, and endgame.
+       Fix:   Cache the sorted array; invalidate on registerGame(). Or expose a cached property: get gameIds() { return this._gameIdCache ??= [...this._games.keys()]; }
+
+  🟡 [Medium] Workflow Engine — listWorkflows()
+       Issue: [...this._definitions.keys()] spreads Map on every call.
+       Fix:   Same pattern as listGames — cache a sorted array, invalidate on register().
+
+  🟢 [Low] Registry — searchCommands()
+       Issue: O(n) full scan with 8-level scoring function on every search query. At 500 commands: acceptable. At 5 000: noticeable.
+       Fix:   Acceptable now. If command count exceeds 1 000, add a Trie or inverted index for O(log n) prefix lookup.
+
+  🟢 [Low] Plugin Loader — static validation
+       Issue: Phase-1 security scan uses .replace() regex chains. Harmless at current plugin counts.
+       Fix:   Compile regexes once at module load instead of inside the validate function.
+
+  📊 Final memory state:
+     Heap used:   12.4 MB
+     RSS:         80.8 MB
+     External:    1.8 MB
+
+════════════════════════════════════════════════════════════════════════
+ Benchmark complete in 0.31s
+════════════════════════════════════════════════════════════════════════
+

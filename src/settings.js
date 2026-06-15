@@ -14,8 +14,8 @@ const DEFAULTS = {
   antidelete: false,
   autoblock: false,
   gconly: false,
-  antiviewonce: false,
-  menuBgUrl: "",  // leave empty to use the bundled local image (src/assets/menu_bg.jpg)
+  menuBgUrl:  "",       // leave empty to use the bundled local image (src/assets/menu_bg.jpg)
+  menuTheme:  "default", // active menu theme id — see src/lib/theme-registry.js
   channelId: "120363406397452589@newsletter",
   channelName: "Yuzuki   更新",
   owners: [],
