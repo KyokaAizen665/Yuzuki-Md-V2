@@ -48,9 +48,22 @@ export default {
     const botName = settings?.botName ?? 'Yuzuki MD';
     const sub     = args[0]?.toLowerCase();
 
+    // ── Active theme (shared by both main and sub-menu) ───────────────────────
+    const theme = getActiveTheme(settings);
+
+    // ── Hero image (theme pool, overridden by .setmenuimg if set) ─────────────
+    // Priority: settings.menuBgUrl → theme heroPool → no image header
+    // Resolved once here so both main menu and sub-menus share the same image.
+    let thumbBuf;
+    if (settings?.menuBgUrl) {
+      thumbBuf = await resolveHeroFromUrl(settings.menuBgUrl, 5000);
+    } else {
+      thumbBuf = await resolveHero(theme, 5000);
+    }
+
     // ── Sub-menu: .menu ai, .menu tools, etc. ─────────────────────────────────
     if (sub && getCategories().includes(sub)) {
-      await categoryCard(sock, jid, msg, sub, { prefix, botName });
+      await categoryCard(sock, jid, msg, sub, { prefix, botName, thumbBuf });
       return;
     }
 
@@ -61,9 +74,6 @@ export default {
     const pushname   = msg.pushName ?? 'User';
     const userRank   = isOwner(sender, settings) ? 'Owner 👑' : 'User 🌟';
 
-    // ── Active theme ──────────────────────────────────────────────────────────
-    const theme = getActiveTheme(settings);
-
     // ── Dynamic greeting (theme-aware, time-based, personalised) ─────────────
     const greeting = resolveGreeting(theme, { name: pushname, botName });
 
@@ -71,15 +81,6 @@ export default {
       pushname, userRank, uptimeStr, totalUsers, greeting,
     });
     const menuRows = buildMenuRows(prefix);
-
-    // ── Hero image (theme pool, overridden by .setmenuimg if set) ─────────────
-    // Priority: settings.menuBgUrl → theme heroPool → no image header
-    let thumbBuf;
-    if (settings?.menuBgUrl) {
-      thumbBuf = await resolveHeroFromUrl(settings.menuBgUrl, 5000);
-    } else {
-      thumbBuf = await resolveHero(theme, 5000);
-    }
 
     // sendMenuCard: NativeFlow card with optional image header + category select.
     // Falls back to plain text automatically if the interactive send fails.

@@ -25,6 +25,7 @@ import {
   copyButton,
   urlButton,
   selectButton,
+  prepareImageHeader,
 } from '../message-engine/index.js';
 
 import {
@@ -153,10 +154,16 @@ export async function categoryCard(sock, jid, msg, categoryKey, opts = {}) {
   const title = meta.title ?? categoryKey;
   const rows  = buildCommandRows(cmds, prefix);
 
+  // Prepare image header when a hero buffer is supplied by the caller.
+  const mediaHeader = opts.thumbBuf
+    ? await prepareImageHeader(sock, opts.thumbBuf)
+    : undefined;
+
   return sendCard(sock, jid, msg, {
     body,
     footer:  botName,
     buttons: rows.length ? [selectButton('📂 Command Details', rows, `${title} Commands`)] : [],
+    ...(mediaHeader ? { mediaHeader } : {}),
     fallback: body,
   });
 }
