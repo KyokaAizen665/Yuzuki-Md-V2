@@ -84,30 +84,30 @@ export function buildMain(botName, prefix, runtime = {}) {
   const greetingLine = greeting ? `${greeting}\n\n` : '';
 
   return (
-`${greetingLine}✨━〔 🤖 *${botName}* 〕━✨
+`${greetingLine}✨━━〔 🤖 *${botName}* 〕━━✨
 
 ╭─〔 👤 *𝐔𝐬𝐞𝐫 𝐈𝐧𝐟𝐨* 〕
 │ 𝗡𝗮𝗺𝗲 : *${pushname}*
 │ 𝗥𝗮𝗻𝗸 : *${userRank}*
-╰───────────────╯
+╰──────────────────────╯
 
 ╭─〔 🤖 *𝐁𝐨𝐭 𝐈𝐧𝐟𝐨* 〕
 │ 𝗣𝗿𝗲𝗳𝗶𝘅    : *${prefix}*
 │ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲  : *${uptimeStr}*
 │ 👥 𝗨𝘀𝗲𝗿𝘀   : *${totalUsers}*
 │ ⚒️ 𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 : *${totalCmds} loaded*
-╰─────────────────╯
+╰──────────────────────╯
 
 ✨━━〔 📂 *𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐢𝐞𝐬* 〕━━✨
-╭──────────────╮
+╭──────────────────────╮
 ${catLines}
-╰──────────────╯
+╰──────────────────────╯
 
 ╭─〔 💡 *𝐓𝐢𝐩𝐬* 〕
 │ *${prefix}help <cmd>* — command details
 │ *${prefix}search <query>* — find any command
 │ *${prefix}menu owner* — owner commands
-╰──────────────╯`
+╰──────────────────────╯`
   );
 }
 
@@ -143,7 +143,7 @@ export function buildSub(botName, prefix, key) {
 ╭─〔 🔖 *𝐀𝐜𝐜𝐞𝐬𝐬 𝐊𝐞𝐲* 〕
 │ Ⓕ = ꜰʀᴇᴇ  │  Ⓛ = ʟɪᴍɪᴛᴇᴅ
 │ Ⓐ = ᴀᴅᴍɪɴ  │  Ⓞ = ᴏᴡɴᴇʀ
-╰───────────────────╯
+╰──────────────────────╯
 
 ${cmdLines}
 
@@ -151,7 +151,7 @@ ${cmdLines}
 │ *${prefix}help <cmd>* — detailed info
 │ *${prefix}search <query>* — search commands
 │ Back: *${prefix}menu*
-╰───────────────╯`
+╰──────────────────────╯`
   );
 }
 

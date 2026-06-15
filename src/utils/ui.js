@@ -23,7 +23,7 @@ export function card(emoji, title, fields, footer) {
     const [label, value] = row;
     return `│  ${label.padEnd(12)}› ${value}`;
   }).join("\n");
-  const foot = footer ? `╰${LINE}\n_${footer}_` : `╰${LINE}╯`;
+  const foot = footer ? `╰${LINE}╯\n_${footer}_` : `╰${LINE}╯`;
   return `${header}\n│\n${body}\n│\n${foot}`;
 }
 
@@ -61,9 +61,9 @@ export function toggle(emoji, name, on, note) {
  * @param {string[]} items
  */
 export function listCard(emoji, title, items) {
-  const header = `${emoji}  *${title}*\n${"─".repeat(18)}`;
+  const header = `${emoji}  *${title}*\n${"─".repeat(22)}`;
   const rows   = items.map((item, i) => `  ${i + 1}.  ${item}`).join("\n");
-  return `${header}\n${rows}\n${"─".repeat(18)}`;
+  return `${header}\n${rows}\n${"─".repeat(22)}`;
 }
 
 /**

@@ -139,7 +139,7 @@ export async function infoCard(sock, jid, quotedMsg, emoji, title, fields, foote
     const [label, value] = row;
     return `│  ${label.padEnd(12)}› ${value}`;
   }).join('\n');
-  const foot = footer ? `╰${LINE}\n_${footer}_` : `╰${LINE}╯`;
+  const foot = footer ? `╰${LINE}╯\n_${footer}_` : `╰${LINE}╯`;
 
   const text = `${header}\n│\n${body}\n│\n${foot}`;
   return sendReply(sock, jid, text, quotedMsg);

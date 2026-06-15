@@ -128,7 +128,7 @@ export async function pluginDetailCard(sock, jid, msg, cmdNameOrObj, opts = {}) 
 
   const catKey   = cmd.category ?? '';
   const catMeta  = CATEGORY_META[catKey] ?? { icon: '📁', title: catKey || 'Unknown' };
-  const divider  = '━'.repeat(22);
+  const divider  = '─'.repeat(22);
 
   const lines = [
     `${catMeta.icon} *${cmd.name}*  ·  ${catMeta.title}`,
@@ -225,7 +225,7 @@ export async function workflowCard(sock, jid, msg, workflowName, opts = {}) {
     return sendReply(sock, jid, `❌ Workflow not found: *${workflowName}*`, msg);
   }
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `🔄 *Workflow: ${info.name}*`,
     divider,
@@ -271,7 +271,7 @@ export async function workflowListCard(sock, jid, msg, opts = {}) {
     );
   }
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `🔄 *Workflows (${names.length})*`,
     divider,
@@ -331,7 +331,7 @@ export async function gameCard(sock, jid, msg, gameId, opts = {}) {
     ? `${game.minPlayers} player${game.minPlayers !== 1 ? 's' : ''}`
     : `${game.minPlayers}–${game.maxPlayers} players`;
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `🎮 *${name}*`,
     divider,
@@ -388,7 +388,7 @@ export async function gameListCard(sock, jid, msg, opts = {}) {
     );
   }
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `🎮 *Games (${gameIds.length})*`,
     divider,
@@ -453,7 +453,7 @@ export async function leaderboardCard(sock, jid, msg, gameId, opts = {}) {
     );
   }
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `🏆 *${title} — Top ${board.length}*`,
     divider,
@@ -515,7 +515,7 @@ export async function playerStatsCard(sock, jid, msg, playerJid, displayName, op
   const winRate = stats.totalPlays > 0
     ? Math.round((stats.totalWins / stats.totalPlays) * 100) : 0;
 
-  const divider = '━'.repeat(22);
+  const divider = '─'.repeat(22);
   const lines   = [
     `📊 *${name}'s Stats*`,
     divider,
