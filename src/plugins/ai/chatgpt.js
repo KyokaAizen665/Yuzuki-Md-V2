@@ -1,7 +1,6 @@
 /**
  * Plugin: chatgpt
  * Category: ai
- * Migrated from commands.js case "chatgpt"
  *
  * Uses Pollinations.AI (free, no API key) with the openai model.
  * Response is delivered in an interactive copy-button card.
@@ -17,13 +16,15 @@ export default {
   name:        'chatgpt',
   aliases:     ['gpt', 'ai', 'ask'],
   category:    'ai',
-  description: 'Chat with Llama 3.1 8B via Groq (needs GROQ_API_KEY)',
+  description: 'Chat with GPT-class AI via Pollinations.AI (free, no key needed)',
   usage:       '.chatgpt <message>',
 
   async execute({ sock, msg, reply, args, settings }) {
     const jid  = msg.key.remoteJid;
     const text = args.join(' ').trim();
     if (!text) { await reply(`Usage: .chatgpt <message>`); return; }
+
+    await sock.sendMessage(jid, { react: { text: '🤖', key: msg.key } }).catch(() => {});
 
     try {
       const res  = await polliText([{ role: 'user', content: text }], 'openai');
@@ -45,7 +46,9 @@ export default {
         },
       }, { quoted: msg });
       await sock.relayMessage(jid, msgx.message, { messageId: msgx.key.id });
+      await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } }).catch(() => {});
     } catch (e) {
+      await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } }).catch(() => {});
       await reply(`❌ ChatGPT: ${e.message}`);
     }
   },

@@ -1,7 +1,6 @@
 /**
  * Plugin: claude
  * Category: ai
- * Migrated from commands.js case "claude"
  *
  * Uses Pollinations.AI "openai-large" model (free, no API key).
  * Response is delivered in an interactive copy-button card.
@@ -17,13 +16,15 @@ export default {
   name:        'claude',
   aliases:     ['claude3', 'sonnet'],
   category:    'ai',
-  description: 'Chat with Claude (via Pollinations.AI large model)',
+  description: 'Chat with a large AI model via Pollinations.AI (free, no key needed)',
   usage:       '.claude <message>',
 
   async execute({ sock, msg, reply, args, settings }) {
     const jid  = msg.key.remoteJid;
     const text = args.join(' ').trim();
     if (!text) { await reply(`Usage: .claude <message>`); return; }
+
+    await sock.sendMessage(jid, { react: { text: '🧠', key: msg.key } }).catch(() => {});
 
     try {
       const res  = await polliText([{ role: 'user', content: text }], 'openai-large');
@@ -45,7 +46,9 @@ export default {
         },
       }, { quoted: msg });
       await sock.relayMessage(jid, msgx.message, { messageId: msgx.key.id });
+      await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } }).catch(() => {});
     } catch (e) {
+      await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } }).catch(() => {});
       await reply(`❌ Claude: ${e.message}`);
     }
   },

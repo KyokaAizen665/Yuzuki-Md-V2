@@ -1,42 +1,33 @@
-import crypto from "crypto";
+/**
+ * ChatEx AI scraper — DEPRECATED
+ *
+ * Status: BROKEN as of 2026-06-15
+ *
+ * Reason: The ChatEx AI API endpoint (https://chatex.ai/api/chat) now issues
+ * a 307 redirect to www.chatex.ai. The www endpoint returns HTTP 400 for all
+ * POST requests, indicating the API format or authentication requirements have
+ * changed. The fallback endpoint (v1/chat/completions) has the same issue.
+ * No anonymous access is available.
+ *
+ * Action: Exports a stub that throws a clear ProviderUnavailable error.
+ *         The chatexai plugin will surface this as a user-facing message.
+ */
 
-export async function chatex(prompt) {
-  if (!prompt) throw new Error("Prompt is required.");
-
-  const sessionId = crypto.randomUUID();
-  const headers = {
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0",
-    Origin: "https://chatex.ai",
-    Referer: "https://chatex.ai/",
-  };
-
-  const res = await fetch("https://chatex.ai/api/chat", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      messages: [{ role: "user", content: prompt }],
-      session_id: sessionId,
-      stream: false,
-    }),
-  });
-
-  if (!res.ok) {
-    // Fallback: try alternate endpoint
-    const res2 = await fetch("https://chatex.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-      }),
-    });
-    if (!res2.ok) throw new Error(`ChatEx API error: ${res2.status}`);
-    const j2 = await res2.json();
-    return j2?.choices?.[0]?.message?.content || j2?.content || "";
+export class ProviderUnavailableError extends Error {
+  constructor(provider, reason) {
+    super(`${provider} is currently unavailable: ${reason}`);
+    this.name   = 'ProviderUnavailableError';
+    this.provider = provider;
   }
+}
 
-  const json = await res.json();
-  return json?.choices?.[0]?.message?.content || json?.content || json?.reply || "";
+/**
+ * @throws {ProviderUnavailableError} always
+ */
+export async function chatex(_prompt) {
+  throw new ProviderUnavailableError(
+    'ChatEx AI',
+    'Provider API has changed and no longer accepts anonymous requests (HTTP 400). ' +
+    'This provider has been disabled pending a fix.',
+  );
 }

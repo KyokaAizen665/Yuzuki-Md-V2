@@ -1,70 +1,30 @@
 /**
  * Plugin: chatexai
  * Category: ai
- * Migrated from commands.js case "chatex" / "chatexai"
+ * Status: DISABLED — provider API deprecated 2026-06-15
  *
- * ChatEx AI — conversational AI via scraper (no API key needed).
- * Costs 1 limit credit per query.
+ * ChatEx AI anonymous API now returns HTTP 400 / 307 loop.
+ * Provider requires authentication that is not publicly available.
  */
-
-import { createRequire } from 'module';
-const _require = createRequire(import.meta.url);
-const { generateWAMessageFromContent } = _require('socketon');
-
-import { chatex }                              from '../../lib/scrape/chatexai.js';
-import { initUserDB, getLimitCost, checkLimit, useLimit } from '../../lib/database.js';
-import { isOwner }                             from '../../settings.js';
 
 export default {
   name:        'chatexai',
   aliases:     ['chatex', 'cx'],
   category:    'ai',
-  description: 'Chat with ChatEx AI (free)',
+  description: '[Disabled] ChatEx AI — provider API no longer available',
   usage:       '.chatexai <message>',
-  limit:       1,
+  disabled:    true,
 
-  async execute({ sock, msg, reply, args, sender, settings }) {
-    const jid  = msg.key.remoteJid;
-    const text = args.join(' ').trim();
-    if (!text) { await reply(`📌 Example: .chatex Hello, how are you?`); return; }
-
-    initUserDB(sender, msg.pushName ?? 'User');
-    const cost = getLimitCost('chatex', 1);
-    const lim  = checkLimit(sender, isOwner(sender, settings));
-    if (lim !== '∞' && lim < cost) {
-      await reply(`❌ Not enough limit! Need *${cost}*, you have *${lim}*.`);
-      return;
-    }
-
-    await sock.sendMessage(jid, { react: { text: '💬', key: msg.key } });
-    try {
-      const answer   = await chatex(text);
-      const fullText = `💬 *ChatEx AI*\n\n*Q:* ${text}\n\n${answer}`;
-
-      const msxCx = generateWAMessageFromContent(jid, {
-        viewOnceMessage: {
-          message: {
-            messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-            interactiveMessage: {
-              body:   { text: fullText },
-              footer: { text: settings.botName ?? 'Yuzuki MD' },
-              nativeFlowMessage: {
-                buttons: [{
-                  name: 'cta_copy',
-                  buttonParamsJson: JSON.stringify({ display_text: '📋 Copy Response', copy_code: answer }),
-                }],
-              },
-            },
-          },
-        },
-      }, { quoted: msg });
-      await sock.relayMessage(jid, msxCx.message, { messageId: msxCx.key.id });
-
-      useLimit(sender, cost, isOwner(sender, settings));
-      await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } });
-    } catch (e) {
-      await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
-      await reply(`❌ ChatEx error: ${e.message}`);
-    }
+  async execute({ reply, settings }) {
+    const prefix = settings?.prefix ?? '.';
+    await reply(
+      `⚠️  *ChatEx AI — Provider Unavailable*\n` +
+      `${'─'.repeat(22)}\n\n` +
+      `ChatEx AI has changed their API and no longer accepts anonymous requests.\n\n` +
+      `_Use these working alternatives:_\n` +
+      `• \`${prefix}chatgpt\` — GPT-class AI (free)\n` +
+      `• \`${prefix}gemini\` — Google Gemini (free)\n` +
+      `• \`${prefix}aichat\` — AI chat with memory (free)`,
+    );
   },
 };
