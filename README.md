@@ -12,8 +12,8 @@
 
 
 > [!NOTE]
-> This is a completely free source code.
-> Do not sell or buy.
+> This is the official source code for YuzukiMD and it's completely free
+> do not sell or buy.
 
 
 
