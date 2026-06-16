@@ -27,15 +27,15 @@ Main Menu
 
 📞 Contact
 
-- WhatsApp: [Chat on WhatsApp] (https://wa.me/233533416608)
-- Telegram: [@DeathCore_Xr] (https://t.me/DeathCore_Xr)
-- Channel: [Yuzuki Official Channel] (https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326)
+- WhatsApp: [Chat on WhatsApp](https://wa.me/233533416608)
+- Telegram: [@DeathCore_Xr](https://t.me/DeathCore_Xr)
+- Channel: [Yuzuki Official Channel](https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326)
 
 ---
 
 👑 Developer
 
-[Aizen] (https://wa.me/233533416608)
+[Aizen](https://wa.me/233533416608)
 
 ---
 
