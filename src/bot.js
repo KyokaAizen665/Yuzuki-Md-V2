@@ -117,6 +117,74 @@ export const state = {
 let reconnectTimer = null;
 let messageHandler = null; // FIX: Track event listener to prevent duplicates
 
+// ── Session validator ─────────────────────────────────────────────────────────
+// Removes corrupted JSON files from the session directory before Baileys tries
+// to load them — a corrupted creds.json or pre-key file causes silent failures
+// that look identical to network errors during pairing.
+function validateSession(sessionDir) {
+  if (!fs.existsSync(sessionDir)) return;
+  let removed = 0;
+  for (const file of fs.readdirSync(sessionDir)) {
+    if (!file.endsWith(".json")) continue;
+    const fPath = path.join(sessionDir, file);
+    try {
+      JSON.parse(fs.readFileSync(fPath, "utf8"));
+    } catch {
+      fs.unlinkSync(fPath);
+      removed++;
+      log.warn(`[PAIRING] Removed corrupted session file: ${chalk.dim(file)}`);
+    }
+  }
+  if (removed > 0) {
+    log.warn(`[PAIRING] Cleaned ${chalk.yellow(removed)} corrupted file(s) — fresh pairing required`);
+  }
+}
+
+// ── Pairing readiness helper ──────────────────────────────────────────────────
+// Waits until the noise-protocol handshake is confirmed complete.
+// The reliable signal is `update.qr` (WhatsApp sends the QR payload once the
+// handshake is done — this is the same moment pairing codes can be requested).
+// Resolving on `connection === "connecting"` is WRONG: that fires the instant
+// the TCP connection opens, before the handshake, causing 428 errors.
+function waitForPairingReady(sock, timeoutMs = 25000) {
+  return new Promise((resolve, reject) => {
+    // Race condition guard: WebSocket may already be open before we subscribe.
+    // socketon exposes sock.ws (a standard WebSocket).
+    if (sock.ws?.readyState === 1 /* OPEN */) {
+      console.log("[PAIRING] WebSocket already OPEN — proceeding immediately");
+      return resolve("ws_already_open");
+    }
+
+    const timer = setTimeout(() => {
+      sock.ev.off("connection.update", handler);
+      reject(new Error("Timeout waiting for pairing-ready signal"));
+    }, timeoutMs);
+
+    function handler(update) {
+      if (update.connection === "connecting") {
+        console.log("[PAIRING] Connection update: connecting");
+      }
+      // qr → handshake done, server is waiting for auth input
+      if (update.qr) {
+        clearTimeout(timer);
+        sock.ev.off("connection.update", handler);
+        console.log("[PAIRING] Connection update: open (QR event — noise handshake complete)");
+        resolve("qr_received");
+        return;
+      }
+      // open → already authenticated (rare on fresh session, but handle it)
+      if (update.connection === "open") {
+        clearTimeout(timer);
+        sock.ev.off("connection.update", handler);
+        console.log("[PAIRING] Connection update: open");
+        resolve("connection_open");
+      }
+    }
+
+    sock.ev.on("connection.update", handler);
+  });
+}
+
 /**
  * Extract plain text from any message type Baileys sends.
  * FIX: added normalTextMessage support (used by newer WhatsApp clients)
@@ -156,6 +224,12 @@ export async function startBot() {
     fs.mkdirSync(SESSION_DIR, { recursive: true });
   }
 
+  // Scrub corrupted session files before Baileys loads them.
+  // A corrupted creds.json causes useMultiFileAuthState to throw or return
+  // an invalid auth state that silently breaks the pairing handshake.
+  console.log("[PAIRING] Socket created");
+  validateSession(SESSION_DIR);
+
   await loadPlugins();
 
   // ── Startup: sync ownerNumber from PHONE_NUMBER env ──────────────
@@ -181,7 +255,10 @@ export async function startBot() {
     logger: silentLogger,
     syncFullHistory: false,
     markOnlineOnConnect: true,
-    browser: ["Android", "Chrome", "114.0.5735.196"],
+    // "Ubuntu" + Chrome is the most reliable platform string for pairing-code
+    // mode across WhatsApp versions. "Android" can cause 428s on some WA builds
+    // because the server expects a web/desktop handshake for pairing codes.
+    browser: ["Ubuntu", "Chrome", "114.0.0.0"],
     patchMessageBeforeSending: (message) => {
       const requiresPatch = !!(
         message.buttonsMessage ||
@@ -235,41 +312,83 @@ export async function startBot() {
     setSetting("ownerNumber", phoneNumber);
     logger.info({ phoneNumber }, "ownerNumber saved to settings.json");
 
-    try {
-      // Wait for WhatsApp WebSocket handshake before requesting the code.
-      // A flat delay is unreliable — on slow connections 2 s is not enough,
-      // and the pairing request fails silently → "couldn't link device".
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timeout waiting for WS handshake")), 15000);
-        const unsub = sock.ev.on("connection.update", (update) => {
-          // connection.update fires with isOnline/qr/etc once the WS is up
-          if (update.connection === "connecting" || update.qr || update.isOnline) {
-            clearTimeout(timeout);
-            resolve();
-          }
+    // ── Pairing code request with exponential backoff ─────────────────────────
+    // Attempt 1 → wait 3 s before retry
+    // Attempt 2 → wait 5 s before retry
+    // Attempt 3 → wait 10 s then give up and restart the bot
+    // This prevents request storms on Render / Railway cold starts where
+    // the WS handshake can take significantly longer than on local machines.
+    const PAIRING_RETRY_DELAYS = [3000, 5000, 10000];
+    let pairingCode = null;
+
+    for (let attempt = 1; attempt <= PAIRING_RETRY_DELAYS.length; attempt++) {
+      console.log(`[PAIRING] Requesting pairing code — attempt ${attempt}/${PAIRING_RETRY_DELAYS.length}`);
+      try {
+        // Wait until the noise-protocol handshake is confirmed done.
+        // On Render cold starts this can take up to 15-20 s — use a generous timeout.
+        const onRender = !!(process.env.RENDER || process.env.IS_PULL_REQUEST);
+        const readyTimeout = onRender ? 30000 : 20000;
+
+        await waitForPairingReady(sock, readyTimeout).catch(async (err) => {
+          // Fallback: if the event never fires (edge case), wait a bit and try anyway.
+          // Cold-start Render boxes sometimes swallow the first connection.update.
+          const fallback = onRender ? 8000 : 5000;
+          log.warn(`[PAIRING] Request blocked — ${err.message} — fallback wait ${fallback}ms`);
+          await new Promise((r) => setTimeout(r, fallback));
         });
-      }).catch(() => {
-        // Fallback: just wait 3 s if the event never fires
-        return new Promise((r) => setTimeout(r, 3000));
-      });
-      const code = await sock.requestPairingCode(phoneNumber);
-      state.pairingCode = code;
-      const line = "=".repeat(44);
-      console.log(`\n${line}`);
-      console.log(`  ✅ Pairing code for +${phoneNumber}:`);
-      console.log(`  📱 Code: ${code}`);
-      console.log(`  WhatsApp → Settings → Linked Devices`);
-      console.log(`  → Link with phone number → enter code`);
-      console.log(`${line}\n`);
-    } catch (err) {
-      logger.error({ err }, "Failed to request pairing code — retrying in 5s");
-      setTimeout(() => startBot().catch(console.error), 5000);
+
+        // Guard: refuse to call requestPairingCode if the WebSocket is not open.
+        // readyState: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+        const wsState = sock.ws?.readyState;
+        if (wsState !== undefined && wsState !== 1) {
+          throw new Error(`Socket not ready (ws.readyState=${wsState}) — cannot pair`);
+        }
+
+        console.log(`[PAIRING] Requesting pairing code for +${phoneNumber}`);
+        pairingCode = await sock.requestPairingCode(phoneNumber);
+        console.log(`[PAIRING] Pairing code received ✓`);
+        break; // success — exit retry loop
+
+      } catch (err) {
+        const retryDelay = PAIRING_RETRY_DELAYS[attempt - 1];
+        log.err(`[PAIRING] Attempt ${attempt} failed: ${chalk.red(err.message ?? err)}`);
+
+        if (attempt < PAIRING_RETRY_DELAYS.length) {
+          log.warn(`[PAIRING] Retrying in ${retryDelay / 1000}s...`);
+          await new Promise((r) => setTimeout(r, retryDelay));
+        }
+      }
+    }
+
+    if (!pairingCode) {
+      log.err("[PAIRING] All retry attempts exhausted — restarting bot in 12s");
+      setTimeout(() => startBot().catch(console.error), 12000);
       return;
     }
+
+    state.pairingCode = pairingCode;
+    const line = "=".repeat(44);
+    console.log(`\n${line}`);
+    console.log(`  ✅ Pairing code for +${phoneNumber}:`);
+    console.log(`  📱 Code: ${pairingCode}`);
+    console.log(`  WhatsApp → Settings → Linked Devices`);
+    console.log(`  → Link with phone number → enter code`);
+    console.log(`${line}\n`);
   }
 
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
+
+    // ── Structured [PAIRING] lifecycle logs ──────────────────────────────────
+    if (update.qr) {
+      console.log("[PAIRING] Connection update: open (QR/handshake signal received)");
+    }
+    if (connection === "connecting") {
+      console.log("[PAIRING] Connection update: connecting");
+    }
+    if (connection === "open") {
+      console.log("[PAIRING] Connection update: open");
+    }
 
     if (connection === "close") {
       state.connected = false;
