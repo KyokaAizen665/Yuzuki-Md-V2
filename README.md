@@ -1,6 +1,6 @@
 <div align="center"><img src="https://your-banner-image-url.png" width="100%">🌸 Yuzuki MD
 
-«Modern WhatsApp Multi-Device Framework built for AI, automation, plugins, workflows, and beautiful interactive experiences.»
+> Modern WhatsApp Multi-Device Framework built for AI, automation, plugins, workflows, and beautiful interactive experiences.
 
 <p align="center">
 <img src="https://img.shields.io/badge/Version-v2-purple?style=for-the-badge">
@@ -27,15 +27,15 @@ Main Menu
 
 📞 Contact
 
-- WhatsApp: "Chat on WhatsApp" (https://wa.me/233533416608)
-- Telegram: "@DeathCore_Xr" (https://t.me/DeathCore_Xr)
-- Channel: "Yuzuki Official Channel" (https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326)
+- WhatsApp: [Chat on WhatsApp] (https://wa.me/233533416608)
+- Telegram: [@DeathCore_Xr] (https://t.me/DeathCore_Xr)
+- Channel: [Yuzuki Official Channel] (https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326)
 
 ---
 
 👑 Developer
 
-"Aizen" (https://wa.me/233533416608)
+[Aizen] (https://wa.me/233533416608)
 
 ---
 
