@@ -1,13 +1,13 @@
 <div align="center"><img src="https://renei-mora.my.id/file/2f23af5798.jpg" width="100%">🌸 Yuzuki MD
 
-> Modern WhatsApp Multi-Device Framework built for AI, automation, plugins, workflows, and beautiful interactive experiences.
+> Modern WhatsApp framework powered by AI, automation, themes, and interactive experiences.
 
 <p align="center">
 <img src="https://img.shields.io/badge/Version-v2-purple?style=for-the-badge">
 <img src="https://img.shields.io/badge/Node.js-20+-green?style=for-the-badge">
 <img src="https://img.shields.io/badge/Platform-WhatsApp-success?style=for-the-badge">
 <img src="https://img.shields.io/badge/License-MIT-pink?style=for-the-badge">
-</p></div> ---
+</p></div> <hr>
 
 
 
