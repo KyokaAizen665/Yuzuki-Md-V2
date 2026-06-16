@@ -12,13 +12,13 @@
 
 
 > [!NOTE]
-This is the official source code of Yuzuki MD.
+> This is the official source code of Yuzuki MD.
 
-🌸 Free and open-source for everyone.
+> 🌸 Free and open-source for everyone.
 
-Please do not buy, sell, or redistribute paid copies of this project.
+> Please do not buy, sell, or redistribute paid copies of this project.
 
-If someone is charging money for Yuzuki MD, they are not affiliated with the official project.
+> If someone is charging money for Yuzuki MD, they are not affiliated with the official project.
 
 
 
