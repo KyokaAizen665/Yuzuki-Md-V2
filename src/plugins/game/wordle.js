@@ -7,10 +7,13 @@
  *   .wordle          — start new game
  *   .wordle <word>   — guess a 5-letter word
  *   .wordle resign   — give up
+ *
+ * VRS: hero image on game START only (heroType: 'games')
  */
 
-import { gameEngine }               from '../../lib/game-engine.js';
-import { recordWin, recordLoss }    from '../../lib/game-store.js';
+import { gameEngine }            from '../../lib/game-engine.js';
+import { recordWin, recordLoss } from '../../lib/game-store.js';
+import { sendHeroCard }          from '../../lib/visual-response.js';
 
 const WORDS = [
   'brave','cloud','dream','flame','grace','heart','ivory','juice','knife','lemon',
@@ -25,15 +28,13 @@ const WORDS = [
 const TILE = { hit: '🟩', near: '🟨', miss: '⬜' };
 
 function score(guess, target) {
-  const result   = Array(5).fill('miss');
-  const tArr     = target.split('');
-  const used     = Array(5).fill(false);
+  const result = Array(5).fill('miss');
+  const tArr   = target.split('');
+  const used   = Array(5).fill(false);
 
-  // Exact matches first
   for (let i = 0; i < 5; i++) {
     if (guess[i] === tArr[i]) { result[i] = 'hit'; used[i] = true; }
   }
-  // Near matches
   for (let i = 0; i < 5; i++) {
     if (result[i] === 'hit') continue;
     const j = tArr.findIndex((c, k) => c === guess[i] && !used[k]);
@@ -57,7 +58,7 @@ export default {
   description: 'Guess the 5-letter word in 6 tries',
   usage:       '.wordle | .wordle <5-letter-word> | .wordle resign',
 
-  async execute({ reply, args, sender, msg }) {
+  async execute({ sock, reply, args, sender, msg, settings }) {
     const jid     = msg.key.remoteJid;
     const session = gameEngine.get(jid);
     const arg0    = (args[0] ?? '').toLowerCase();
@@ -78,9 +79,9 @@ export default {
       const result = score(arg0, word);
       rows.push({ guess: arg0, result });
 
-      const board  = renderBoard(rows);
-      const won    = result.every(r => r === 'hit');
-      const lost   = !won && rows.length >= 6;
+      const board = renderBoard(rows);
+      const won   = result.every(r => r === 'hit');
+      const lost  = !won && rows.length >= 6;
 
       if (won) {
         gameEngine.end(jid);
@@ -97,17 +98,31 @@ export default {
       return;
     }
 
-    // Show current state if session active
     if (session?.gameId === 'wordle' && arg0 && arg0.length !== 5) {
       await reply(`❌ Must be exactly 5 letters. Try again.`);
       return;
     }
 
-    // Start / show current board
+    // Start new game
     if (!session) {
       const word = WORDS[Math.floor(Math.random() * WORDS.length)];
       gameEngine.create(jid, 'wordle', [sender], { word, rows: [] });
-      await reply(`🟩 *Wordle Started!*\n\nGuess the 5-letter word in 6 tries.\n🟩 = correct place  🟨 = wrong place  ⬜ = not in word\n\nSend *.wordle <5-letter-word>* to guess!`);
+
+      // Hero image on game start only
+      const startBody =
+        `🟩 *Wordle Started!*\n${'─'.repeat(22)}\n\n` +
+        `Guess the 5-letter word in 6 tries.\n\n` +
+        `🟩 = correct place\n🟨 = wrong place\n⬜ = not in word\n\n` +
+        `Send *.wordle <5-letter-word>* to guess!`;
+
+      await sendHeroCard(sock, jid, msg, {
+        body:      startBody,
+        footer:    settings?.botName ?? 'Yuzuki MD',
+        heroType:  'games',
+        settings,
+        forceHero: true,
+        fallback:  startBody,
+      });
       return;
     }
 

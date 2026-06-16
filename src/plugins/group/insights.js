@@ -8,16 +8,19 @@
  * Usage:
  *   .insights    — full group health report
  *   .dashboard   — alias
+ *
+ * VRS: heroType 'group' — ocean/coastal imagery
  */
 
 import { getGroupStats, getAutomod, getActivityLeaderboard } from '../../lib/group-db.js';
-import { getGroupData }                                     from '../../lib/protect.js';
-import { insightsCard }                                     from '../../lib/group-cards.js';
+import { getGroupData }                                      from '../../lib/protect.js';
+import { insightsCard }                                      from '../../lib/group-cards.js';
 import {
   computeEngagementRate, computeRetentionRate, computePeakHour,
   getActivityLevel, computeActivityScore, fmtPercent,
 } from '../../lib/group-analytics.js';
-import { sendInteractive, selectButton, copyButton }        from '../../lib/interactive.js';
+import { sendHeroCard, copyButton }                          from '../../lib/visual-response.js';
+import { selectButton }                                      from '../../message-engine/index.js';
 
 export default {
   name:        'insights',
@@ -38,16 +41,14 @@ export default {
     const stats       = getGroupStats(jid);
     const memberCount = meta.participants?.length ?? 0;
     const groupName   = meta.subject ?? 'Group';
-    const card        = insightsCard(groupName, memberCount, stats, prefix);
+    const body        = insightsCard(groupName, memberCount, stats, prefix);
 
-    const automod   = getAutomod(jid);
-    const gc        = getGroupData(jid);
-    const eng       = computeEngagementRate(stats.totalMessages ?? 0, memberCount, stats.createdAt);
-    const ret       = computeRetentionRate(stats.joinHistory, stats.leaveHistory, 7);
-    const peak      = computePeakHour(stats.hourActivity);
-    const top       = getActivityLeaderboard(jid, 1)[0];
-    const topScore  = top ? computeActivityScore(top) : 0;
-    const topLevel  = getActivityLevel(topScore);
+    const automod  = getAutomod(jid);
+    const gc       = getGroupData(jid);
+    const eng      = computeEngagementRate(stats.totalMessages ?? 0, memberCount, stats.createdAt);
+    const ret      = computeRetentionRate(stats.joinHistory, stats.leaveHistory, 7);
+    const top      = getActivityLeaderboard(jid, 1)[0];
+    const topScore = top ? computeActivityScore(top) : 0;
 
     const rows = [
       { title: '📊 Activity Board', rowId: `${prefix}activity`,   description: `Top: @${top?.jid?.split('@')[0] ?? 'N/A'} · ${top?.msgCount ?? 0} msgs` },
@@ -58,13 +59,17 @@ export default {
       { title: '📊 Group Stats',    rowId: `${prefix}groupstats`, description: `${(stats.totalMessages ?? 0).toLocaleString()} total messages` },
     ];
 
-    await sendInteractive(sock, jid, msg, {
-      body:    card,
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [
-        copyButton('📋 Copy Report', card),
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'group',
+      settings,
+      forceHero: true,
+      buttons:   [
+        copyButton('📋 Copy Report', body),
         selectButton('🔍 Drill Down', rows, 'Sections'),
       ],
-    }, card);
+      fallback: body,
+    });
   },
 };

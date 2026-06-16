@@ -12,6 +12,8 @@
  *
  * Buy items: seeds for farming, consumables
  * Sell items: any item in inventory
+ *
+ * VRS: heroType 'economy' — the browse view gets a hero; buy/sell confirmations stay plain text for speed
  */
 
 import { loadDB, addCoins, spendCoins, initUserDB } from '../../lib/database.js';
@@ -19,6 +21,7 @@ import { addItem, removeItem, getInventory, getGU } from '../../lib/games-db.js'
 import {
   SHOP_CATALOG, ITEMS, getItem, formatItem, sellPrice,
 } from '../../lib/items.js';
+import { sendHeroCard } from '../../lib/visual-response.js';
 
 const SHOP_BY_ID = Object.fromEntries(SHOP_CATALOG.map(e => [e.itemId, e]));
 
@@ -52,19 +55,27 @@ export default {
       initUserDB(sender);
       const coins  = db.users[sender]?.money ?? 0;
 
-      let text = `🛒 *Shop*\n${'─'.repeat(22)}\n💰 Your balance: *${coins} coins*\n`;
+      let body = `🛒 *Shop*\n${'─'.repeat(22)}\n💰 Your balance: *${coins} coins*\n`;
       for (const [cat, entries] of Object.entries(groups)) {
-        text += `\n*${cat}*\n`;
+        body += `\n*${cat}*\n`;
         for (const { item, price, itemId } of entries) {
-          text += `  ${item.emoji} ${item.name}  — *${price}🪙*  (\`${prefix}shop buy ${itemId}\`)\n`;
+          body += `  ${item.emoji} ${item.name}  — *${price}🪙*  (\`${prefix}shop buy ${itemId}\`)\n`;
         }
       }
-      text +=
+      body +=
         `\n${'─'.repeat(22)}\n` +
         `_Sell any item at 60% value:_\n` +
         `\`${prefix}shop sell <item> [qty]\`\n` +
         `\`${prefix}shop sell all\` — sell everything`;
-      await sock.sendMessage(jid, { text }, { quoted: msg });
+
+      await sendHeroCard(sock, jid, msg, {
+        body,
+        footer:    settings?.botName ?? 'Yuzuki MD',
+        heroType:  'economy',
+        settings,
+        forceHero: true,
+        fallback:  body,
+      });
       return;
     }
 
@@ -152,15 +163,15 @@ export default {
       }
 
       // Sell specific item
-      const item   = getItem(itemArg) ?? Object.values(ITEMS).find(i => i.name.toLowerCase() === itemArg);
+      const item  = getItem(itemArg) ?? Object.values(ITEMS).find(i => i.name.toLowerCase() === itemArg);
       if (!item) { await reply(`❌ Unknown item: *${itemArg}*`); return; }
 
-      const inInv  = inv[item.id] ?? 0;
-      if (!inInv)  { await reply(`❌ You don't have any *${item.name}* to sell.`); return; }
+      const inInv = inv[item.id] ?? 0;
+      if (!inInv) { await reply(`❌ You don't have any *${item.name}* to sell.`); return; }
 
-      const qty    = Math.min(qtyArg ?? inInv, inInv);
-      const sp     = sellPrice(item.id);
-      const total  = sp * qty;
+      const qty   = Math.min(qtyArg ?? inInv, inInv);
+      const sp    = sellPrice(item.id);
+      const total = sp * qty;
 
       removeItem(sender, item.id, qty);
       addCoins(sender, total);

@@ -8,10 +8,13 @@
  *   .blackjack hit   — draw another card
  *   .blackjack stand — end your turn, dealer plays
  *   .blackjack resign — forfeit
+ *
+ * VRS: hero image on game START only (heroType: 'games')
  */
 
-import { gameEngine }               from '../../lib/game-engine.js';
-import { recordWin, recordLoss, recordDraw } from '../../lib/game-store.js';
+import { gameEngine }                             from '../../lib/game-engine.js';
+import { recordWin, recordLoss, recordDraw }      from '../../lib/game-store.js';
+import { sendHeroCard }                           from '../../lib/visual-response.js';
 
 const SUITS = ['♠','♥','♦','♣'];
 const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
@@ -50,7 +53,7 @@ export default {
   description: 'Play Blackjack against the dealer',
   usage:       '.blackjack | .blackjack hit | .blackjack stand | .blackjack resign',
 
-  async execute({ reply, args, sender, msg }) {
+  async execute({ sock, reply, args, sender, msg, settings }) {
     const jid     = msg.key.remoteJid;
     const session = gameEngine.get(jid);
     const arg0    = (args[0] ?? '').toLowerCase();
@@ -106,7 +109,23 @@ export default {
         return;
       }
       gameEngine.create(jid, 'blackjack', [sender], { deck, playerHand, dealerHand });
-      await reply(`🎴 *Blackjack*\n\nYour hand: ${display(playerHand)}\nDealer: ${display(dealerHand, true)}\n\n*.blackjack hit* — draw a card\n*.blackjack stand* — end your turn`);
+
+      // Hero image on game start only
+      const startBody =
+        `🎴 *Blackjack*\n${'─'.repeat(22)}\n\n` +
+        `Your hand: ${display(playerHand)}\n` +
+        `Dealer:    ${display(dealerHand, true)}\n\n` +
+        `*.blackjack hit* — draw a card\n` +
+        `*.blackjack stand* — end your turn`;
+
+      await sendHeroCard(sock, jid, msg, {
+        body:      startBody,
+        footer:    settings?.botName ?? 'Yuzuki MD',
+        heroType:  'games',
+        settings,
+        forceHero: true,
+        fallback:  startBody,
+      });
       return;
     }
 

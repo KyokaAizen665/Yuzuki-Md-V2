@@ -9,9 +9,12 @@
  *   - Heap memory usage
  *   - RSS memory
  *   - CPU core count
+ *
+ * VRS: heroType 'system' — infrastructure/server imagery
  */
 
 import os from 'os';
+import { sendHeroCard, copyButton } from '../../lib/visual-response.js';
 
 /** Format bytes → MB string */
 const toMB = (bytes) => (bytes / 1024 / 1024).toFixed(2);
@@ -32,13 +35,13 @@ export default {
   description: 'Show bot runtime and system information',
   usage:       '.runtime',
 
-  async execute({ replyChannel }) {
+  async execute({ sock, msg, settings }) {
     const mem      = process.memoryUsage();
     const uptimeSec = Math.floor(process.uptime());
     const cpus     = os.cpus();
     const platform = `${os.type()} ${os.release()} (${os.arch()})`;
 
-    const lines = [
+    const body = [
       '⚙️ *Runtime Info*',
       '',
       `• *Node.js:*   ${process.version}`,
@@ -50,8 +53,15 @@ export default {
       `• Heap used:  ${toMB(mem.heapUsed)} MB / ${toMB(mem.heapTotal)} MB`,
       `• RSS:        ${toMB(mem.rss)} MB`,
       `• External:   ${toMB(mem.external)} MB`,
-    ];
+    ].join('\n');
 
-    await replyChannel(lines.join('\n'));
+    await sendHeroCard(sock, msg.key.remoteJid, msg, {
+      body,
+      footer:   settings?.botName ?? 'Yuzuki MD',
+      heroType: 'system',
+      settings,
+      buttons:  [copyButton('📋 Copy Stats', body)],
+      fallback: body,
+    });
   },
 };

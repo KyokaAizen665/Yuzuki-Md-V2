@@ -10,11 +10,14 @@
  *   .ach                 — alias
  *   .achievements locked — show only locked ones
  *   .achievements done   — show only unlocked ones
+ *
+ * VRS: heroType 'rpg' — fantasy/adventure imagery
  */
 
-import { getAchievements, getGU }   from '../../lib/games-db.js';
-import { loadDB }                   from '../../lib/database.js';
-import { ACHIEVEMENTS }             from '../../lib/rpg.js';
+import { getAchievements, getGU } from '../../lib/games-db.js';
+import { loadDB }                  from '../../lib/database.js';
+import { ACHIEVEMENTS }            from '../../lib/rpg.js';
+import { sendHeroCard }            from '../../lib/visual-response.js';
 
 export default {
   name:        'achievements',
@@ -42,22 +45,28 @@ export default {
       .map(id => ACHIEVEMENTS[id]?.reward ?? 0)
       .reduce((a, b) => a + b, 0);
 
-    let text =
+    let body =
       `🏆 *Achievements* (${doneCount}/${totalCount})\n${'─'.repeat(22)}\n` +
       `_Total rewards earned: ${totalReward}🪙_\n\n`;
 
     for (const a of show) {
       const done = unlocked.has(a.id);
-      text += `${done ? '✅' : '🔒'} ${a.emoji} *${a.name}*\n`;
-      text += `   _${a.desc}_  ·  +${a.reward}🪙\n\n`;
+      body += `${done ? '✅' : '🔒'} ${a.emoji} *${a.name}*\n`;
+      body += `   _${a.desc}_  ·  +${a.reward}🪙\n\n`;
     }
 
     if (!show.length) {
-      text += `_No achievements to show for this filter._`;
+      body += `_No achievements to show for this filter._`;
     } else {
-      text += `${'─'.repeat(22)}\n_${totalCount - doneCount} remaining to unlock_`;
+      body += `${'─'.repeat(22)}\n_${totalCount - doneCount} remaining to unlock_`;
     }
 
-    await sock.sendMessage(jid, { text }, { quoted: msg });
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:   settings?.botName ?? 'Yuzuki MD',
+      heroType: 'rpg',
+      settings,
+      fallback: body,
+    });
   },
 };

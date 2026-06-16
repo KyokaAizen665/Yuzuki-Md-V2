@@ -14,21 +14,24 @@
  *   Base:    200 coins + 100 XP
  *   Streak:  +15 coins per day streak (max +450 at 30 days)
  *   Premium: ×2 everything
+ *
+ * VRS: heroType 'economy' — golden/sunset imagery
  */
 
-import { loadDB, addXP, addCoins, initUserDB }   from '../../lib/database.js';
+import { loadDB, addXP, addCoins, initUserDB }          from '../../lib/database.js';
 import { getDailyData, setDailyData, updateStat, getGU } from '../../lib/games-db.js';
-import { checkAchievements }                     from '../../lib/rpg.js';
+import { checkAchievements }                             from '../../lib/rpg.js';
+import { sendHeroCard }                                  from '../../lib/visual-response.js';
 
 const BASE_COINS   = 200;
 const BASE_XP      = 100;
-const STREAK_BONUS = 15;  // per streak day
-const MAX_STREAK_BONUS = 450; // cap at 30 days
-const RESET_MS     = 48 * 60 * 60 * 1000; // 48 hours (grace period)
-const CLAIM_DELAY  = 20 * 60 * 60 * 1000; // must wait 20 hrs between claims
+const STREAK_BONUS = 15;
+const MAX_STREAK_BONUS = 450;
+const RESET_MS     = 48 * 60 * 60 * 1000;
+const CLAIM_DELAY  = 20 * 60 * 60 * 1000;
 
 const STREAK_MESSAGES = [
-  '', // 0
+  '',
   '🔥 1 day streak!',
   '🔥🔥 2 days in a row!',
   '🔥🔥🔥 3 day streak!',
@@ -58,8 +61,8 @@ export default {
     const dbu   = db.users[sender] ?? {};
     const { lastDaily, dailyStreak } = getDailyData(sender);
 
-    const now       = Date.now();
-    const sinceMs   = now - lastDaily;
+    const now     = Date.now();
+    const sinceMs = now - lastDaily;
 
     // Already claimed today?
     if (sinceMs < CLAIM_DELAY) {
@@ -74,13 +77,12 @@ export default {
       return;
     }
 
-    // Streak: reset if more than 48 hours since last claim
     const newStreak = sinceMs < RESET_MS && lastDaily > 0 ? dailyStreak + 1 : 1;
 
-    const isPrem   = dbu.premium ?? false;
-    const streakB  = Math.min(newStreak * STREAK_BONUS, MAX_STREAK_BONUS);
-    let coins      = BASE_COINS + streakB;
-    let xp         = BASE_XP;
+    const isPrem  = dbu.premium ?? false;
+    const streakB = Math.min(newStreak * STREAK_BONUS, MAX_STREAK_BONUS);
+    let coins     = BASE_COINS + streakB;
+    let xp        = BASE_XP;
     if (isPrem) { coins *= 2; xp *= 2; }
 
     addCoins(sender, coins);
@@ -94,7 +96,7 @@ export default {
     const newAch  = checkAchievements(sender, freshDB.users[sender], gu);
 
     const sm = streakMsg(newStreak);
-    let text =
+    let body =
       `🎁 *Daily Reward Claimed!*\n${'─'.repeat(22)}\n\n` +
       (sm ? `${sm}\n\n` : '') +
       `💰 Coins:  *+${coins}*${isPrem ? '  _(Premium ×2)_' : ''}\n` +
@@ -102,13 +104,20 @@ export default {
       `📊 _Streak: ${newStreak} day${newStreak !== 1 ? 's' : ''}_\n` +
       `_Streak bonus: +${streakB} coins/day_`;
 
-    if (leveled)   text += `\n\n🎉 *Level Up!* You reached *Level ${newLevel}*!`;
+    if (leveled)   body += `\n\n🎉 *Level Up!* You reached *Level ${newLevel}*!`;
     if (newAch.length) {
-      text += `\n\n🏆 *Achievement${newAch.length > 1 ? 's' : ''} unlocked:*\n` +
+      body += `\n\n🏆 *Achievement${newAch.length > 1 ? 's' : ''} unlocked:*\n` +
               newAch.map(a => `${a.emoji} ${a.name} (+${a.reward} 🪙)`).join('\n');
     }
 
     await sock.sendMessage(jid, { react: { text: '🎁', key: msg.key } }).catch(() => {});
-    await sock.sendMessage(jid, { text }, { quoted: msg });
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'economy',
+      settings,
+      forceHero: true,
+      fallback:  body,
+    });
   },
 };

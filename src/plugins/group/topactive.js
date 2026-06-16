@@ -8,11 +8,14 @@
  * Usage:
  *   .topactive       — top 10 by activity score
  *   .top             — alias
+ *
+ * VRS: heroType 'leaderboard' — achievement/stars imagery
  */
 
-import { getActivityLeaderboard }                            from '../../lib/group-db.js';
-import { computeActivityScore, getActivityLevel, msAgo }     from '../../lib/group-analytics.js';
-import { sendInteractive, selectButton }                      from '../../lib/interactive.js';
+import { getActivityLeaderboard }                       from '../../lib/group-db.js';
+import { computeActivityScore, getActivityLevel, msAgo } from '../../lib/group-analytics.js';
+import { sendHeroCard }                                  from '../../lib/visual-response.js';
+import { selectButton }                                  from '../../message-engine/index.js';
 
 const MEDALS = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
 
@@ -49,16 +52,21 @@ export default {
       );
     });
 
+    const body = bodyLines.join('\n');
     const rows = ranked.map((m, i) => ({
       title:       `${MEDALS[i] ?? `${i + 1}.`} @${m.jid.split('@')[0]}`,
       description: `${m.msgCount} msgs · ⭐${m.rep ?? 0} rep · ${m.level.label}`,
       rowId:       `${prefix}activity @${m.jid.split('@')[0]}`,
     }));
 
-    await sendInteractive(sock, jid, msg, {
-      body:    bodyLines.join('\n'),
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [selectButton('👤 View Member', rows, 'Top Members')],
-    }, bodyLines.join('\n'));
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'leaderboard',
+      settings,
+      forceHero: true,
+      buttons:   [selectButton('👤 View Member', rows, 'Top Members')],
+      fallback:  body,
+    });
   },
 };

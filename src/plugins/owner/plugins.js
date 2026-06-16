@@ -5,12 +5,15 @@
  * Lists every loaded plugin grouped by category with status icons.
  * Sends as an interactive card with a select list.
  * Owner-only command.
+ *
+ * VRS: heroType 'owner' — city-command imagery
  */
 
 import { pluginManager, PluginStatus } from '../../plugin-manager.js';
-import { pluginManifest }             from '../../plugin-manager/registry.js';
+import { pluginManifest }              from '../../plugin-manager/registry.js';
 import { isOwner }                     from '../../settings.js';
-import { sendCard, selectButton } from '../../message-engine/index.js';
+import { sendHeroCard }                from '../../lib/visual-response.js';
+import { selectButton }                from '../../message-engine/index.js';
 
 const STATUS_ICONS = {
   [PluginStatus.LOADED]:   '✅',
@@ -60,10 +63,10 @@ export default {
     for (const [cat, plugins] of Object.entries(byCategory).sort()) {
       lines.push(`*${cat.toUpperCase()}*`);
       for (const p of plugins.sort((a, b) => a.name.localeCompare(b.name))) {
-        const icon      = STATUS_ICONS[p.status] ?? '❓';
-        const aliases   = p.aliases?.length ? ` _(${p.aliases.join(', ')})_` : '';
-        const mEntry    = pluginManifest.get(p.name);
-        const mBadge    = mEntry ? ` 📦 _v${mEntry.displayVersion}_` : '';
+        const icon    = STATUS_ICONS[p.status] ?? '❓';
+        const aliases = p.aliases?.length ? ` _(${p.aliases.join(', ')})_` : '';
+        const mEntry  = pluginManifest.get(p.name);
+        const mBadge  = mEntry ? ` 📦 _v${mEntry.displayVersion}_` : '';
         lines.push(`  ${icon} *${p.name}*${aliases}${mBadge}`);
         if (p.status === PluginStatus.ERROR) lines.push(`    ⚠️ ${p.error}`);
         selectRows.push({
@@ -81,11 +84,14 @@ export default {
     const body = lines.join('\n').trim();
 
     const rows = selectRows.slice(0, 10);
-    await sendCard(sock, jid, msg, {
+    await sendHeroCard(sock, jid, msg, {
       body,
-      footer:   `${total} plugins loaded${extCount ? ` • ${extCount} from marketplace` : ''}`,
-      buttons:  rows.length ? [selectButton('🔍 Plugin Details', rows, 'Select Plugin')] : [],
-      fallback: body,
+      footer:    `${total} plugins loaded${extCount ? ` • ${extCount} from marketplace` : ''}`,
+      heroType:  'owner',
+      settings,
+      forceHero: true,
+      buttons:   rows.length ? [selectButton('🔍 Plugin Details', rows, 'Select Plugin')] : [],
+      fallback:  body,
     });
   },
 };

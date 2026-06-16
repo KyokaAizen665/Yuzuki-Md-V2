@@ -10,10 +10,13 @@
  *   .inv               — alias
  *   .inventory fish    — show only fish items
  *   .inventory ore     — show only ores
+ *
+ * VRS: heroType 'economy' — golden/sunset imagery
  */
 
-import { getInventory }              from '../../lib/games-db.js';
-import { getItem, formatItem, ITEMS, sellPrice } from '../../lib/items.js';
+import { getInventory }                              from '../../lib/games-db.js';
+import { getItem, formatItem, ITEMS, sellPrice }     from '../../lib/items.js';
+import { sendHeroCard }                              from '../../lib/visual-response.js';
 
 const TYPE_LABELS = {
   fish:       '🎣 Fish',
@@ -37,7 +40,7 @@ export default {
     const prefix = settings?.prefix ?? '.';
     const filter = args[0]?.toLowerCase();
 
-    const inv = getInventory(sender);
+    const inv     = getInventory(sender);
     const entries = Object.entries(inv).filter(([, qty]) => qty > 0);
 
     if (!entries.length) {
@@ -73,22 +76,28 @@ export default {
       return;
     }
 
-    let text = `📦 *Inventory*\n${'─'.repeat(22)}\n`;
+    let body = `📦 *Inventory*\n${'─'.repeat(22)}\n`;
 
     for (const type of ['fish', 'prey', 'ore', 'crop', 'seed', 'consumable', 'misc']) {
       const group = groups[type];
       if (!group?.length) continue;
-      text += `\n*${TYPE_LABELS[type] ?? type}*\n`;
+      body += `\n*${TYPE_LABELS[type] ?? type}*\n`;
       for (const { item, qty, sv } of group.sort((a, b) => b.item.value - a.item.value)) {
-        text += `  ${item.emoji} ${item.name} ×${qty}  _(sell: ${sv}🪙)_\n`;
+        body += `  ${item.emoji} ${item.name} ×${qty}  _(sell: ${sv}🪙)_\n`;
       }
     }
 
-    text +=
+    body +=
       `\n${'─'.repeat(22)}\n` +
       `💰 Total sell value: *${totalSellValue} coins*\n` +
       `_Use \`${prefix}shop sell <item>\` to sell items_`;
 
-    await sock.sendMessage(jid, { text }, { quoted: msg });
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:   settings?.botName ?? 'Yuzuki MD',
+      heroType: 'economy',
+      settings,
+      fallback: body,
+    });
   },
 };

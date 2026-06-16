@@ -8,6 +8,8 @@
  * Usage:
  *   .engagement    — group engagement metrics
  *   .metrics       — alias
+ *
+ * VRS: heroType 'group' — ocean/coastal imagery
  */
 
 import { getGroupStats }                               from '../../lib/group-db.js';
@@ -16,7 +18,7 @@ import {
   computeEngagementRate, computePeakHour, computePeakDay,
   computeRetentionRate, fmtPercent, sparkline,
 } from '../../lib/group-analytics.js';
-import { sendInteractive, copyButton }                 from '../../lib/interactive.js';
+import { sendHeroCard, copyButton }                    from '../../lib/visual-response.js';
 
 export default {
   name:        'engagement',
@@ -44,7 +46,6 @@ export default {
     const activeRatio = memberCount > 0 ? Math.round((activeCount / memberCount) * 100) : 0;
 
     const dayVals  = Array.from({ length: 7 }, (_, i) => Number(stats.dayActivity?.[i] ?? 0));
-    const daySpark = sparkline(dayVals);
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
     const card = engagementCard(meta.subject ?? 'Group', stats);
@@ -62,12 +63,16 @@ export default {
       `📆 *Peak Day:*   *${peakDay.dayName}*  _(${peakDay.count} msgs)_`,
     ].join('\n');
 
-    const fullCard = card + summaryExtra;
+    const body = card + summaryExtra;
 
-    await sendInteractive(sock, jid, msg, {
-      body:    fullCard,
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [copyButton('📋 Copy Metrics', fullCard)],
-    }, fullCard);
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'group',
+      settings,
+      forceHero: true,
+      buttons:   [copyButton('📋 Copy Metrics', body)],
+      fallback:  body,
+    });
   },
 };

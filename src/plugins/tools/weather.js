@@ -8,10 +8,13 @@
  *   .weather <city>
  *   .weather Tokyo
  *   .weather New York
+ *
+ * VRS: heroType 'utility' — abstract gradients
  */
 
 import { geocode, getCurrentWeather, getWeatherInfo, windDir } from '../../lib/weather-api.js';
-import { sendInteractive, copyButton, selectButton }           from '../../lib/interactive.js';
+import { sendHeroCard, copyButton }                            from '../../lib/visual-response.js';
+import { selectButton }                                        from '../../message-engine/index.js';
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -61,7 +64,6 @@ export default {
     const cur    = data.current;
     const daily  = data.daily;
     const info   = getWeatherInfo(cur.weathercode);
-    const isDay  = cur.is_day === 1;
 
     // ── 3-day forecast ───────────────────────────────────────────────────────
     const forecastLines = [];
@@ -75,7 +77,7 @@ export default {
     }
 
     const locationStr = [loc.admin1, loc.country].filter(Boolean).join(', ');
-    const card = [
+    const body = [
       `${info.icon} *${loc.name}, ${loc.country}*`,
       `${'─'.repeat(26)}`,
       ``,
@@ -92,19 +94,22 @@ export default {
       `⏱️ _Updated just now · Open-Meteo_`,
     ].join('\n');
 
-    await sendInteractive(sock, jid, msg, {
-      body:    card,
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [
-        copyButton('📋 Copy Forecast', card),
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:   settings?.botName ?? 'Yuzuki MD',
+      heroType: 'utility',
+      settings,
+      buttons:  [
+        copyButton('📋 Copy Forecast', body),
         selectButton('🌍 More Cities', [
-          { title: '🌏 Tokyo',   rowId: `${prefix}weather Tokyo`,   description: 'Japan, Asia' },
-          { title: '🌍 London',  rowId: `${prefix}weather London`,  description: 'UK, Europe' },
-          { title: '🌎 New York',rowId: `${prefix}weather New York`,description: 'USA, Americas' },
-          { title: '🌏 Dubai',   rowId: `${prefix}weather Dubai`,   description: 'UAE, Middle East' },
-          { title: '🌏 Sydney',  rowId: `${prefix}weather Sydney`,  description: 'Australia' },
+          { title: '🌏 Tokyo',    rowId: `${prefix}weather Tokyo`,    description: 'Japan, Asia'      },
+          { title: '🌍 London',   rowId: `${prefix}weather London`,   description: 'UK, Europe'       },
+          { title: '🌎 New York', rowId: `${prefix}weather New York`, description: 'USA, Americas'    },
+          { title: '🌏 Dubai',    rowId: `${prefix}weather Dubai`,    description: 'UAE, Middle East' },
+          { title: '🌏 Sydney',   rowId: `${prefix}weather Sydney`,   description: 'Australia'        },
         ], 'Quick Cities'),
       ],
-    }, card);
+      fallback: body,
+    });
   },
 };

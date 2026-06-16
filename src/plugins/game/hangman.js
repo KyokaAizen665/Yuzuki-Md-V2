@@ -8,10 +8,13 @@
  *   .hangman <letter>  — guess a letter
  *   .hangman word <W>  — guess the whole word
  *   .hangman resign    — give up
+ *
+ * VRS: hero image on game START only (heroType: 'games')
  */
 
-import { gameEngine }                        from '../../lib/game-engine.js';
-import { recordWin, recordLoss }             from '../../lib/game-store.js';
+import { gameEngine }               from '../../lib/game-engine.js';
+import { recordWin, recordLoss }    from '../../lib/game-store.js';
+import { sendHeroCard }             from '../../lib/visual-response.js';
 
 const WORDS = [
   'javascript','programming','elephant','adventure','chocolate',
@@ -45,7 +48,7 @@ export default {
   description: 'Play Hangman — guess the hidden word letter by letter',
   usage:       '.hangman | .hangman <letter> | .hangman word <guess> | .hangman resign',
 
-  async execute({ reply, args, sender, msg }) {
+  async execute({ sock, reply, args, sender, msg, settings }) {
     const jid     = msg.key.remoteJid;
     const session = gameEngine.get(jid);
     const arg0    = (args[0] ?? '').toLowerCase();
@@ -71,7 +74,7 @@ export default {
         recordWin(sender, 'hangman', name);
         await reply(`🎉 Correct! The word was *${word}*! You win, ${name}!`);
       } else {
-        const newWrong = wrong + 2; // word guess penalty = 2
+        const newWrong = wrong + 2;
         if (newWrong >= 6) {
           gameEngine.end(jid);
           recordLoss(sender, 'hangman', name);
@@ -116,7 +119,23 @@ export default {
       const word    = WORDS[Math.floor(Math.random() * WORDS.length)];
       const guessed = new Set();
       gameEngine.create(jid, 'hangman', [sender], { word, guessed, wrong: 0 });
-      await reply(`🕹️ *Hangman Started!*\n\n${drawBoard(word, guessed, 0)}\n\nSend a letter to guess! (*.hangman <letter>*)\nGuess the word with *.hangman word <guess>*`);
+
+      // Hero image on game start only
+      const startBody =
+        `🕹️ *Hangman Started!*\n${'─'.repeat(22)}\n\n` +
+        `${drawBoard(word, guessed, 0)}\n\n` +
+        `Send a letter to guess! (*.hangman <letter>*)\n` +
+        `Guess the word with *.hangman word <guess>*\n` +
+        `Give up with *.hangman resign*`;
+
+      await sendHeroCard(sock, jid, msg, {
+        body:      startBody,
+        footer:    settings?.botName ?? 'Yuzuki MD',
+        heroType:  'games',
+        settings,
+        forceHero: true,
+        fallback:  startBody,
+      });
       return;
     }
 

@@ -7,11 +7,14 @@
  * Usage:
  *   .toprep     — top 10 by reputation
  *   .repboard   — alias
+ *
+ * VRS: heroType 'leaderboard' — achievement/stars imagery
  */
 
-import { getRepLeaderboard }                         from '../../lib/group-db.js';
-import { repLeaderCard }                             from '../../lib/group-cards.js';
-import { sendInteractive, selectButton }             from '../../lib/interactive.js';
+import { getRepLeaderboard }              from '../../lib/group-db.js';
+import { repLeaderCard }                  from '../../lib/group-cards.js';
+import { sendHeroCard }                   from '../../lib/visual-response.js';
+import { selectButton }                   from '../../message-engine/index.js';
 
 const MEDALS = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
 
@@ -31,10 +34,10 @@ export default {
     try { meta = await sock.groupMetadata(jid); } catch { meta = { subject: 'Group' }; }
 
     const top  = getRepLeaderboard(jid, 10);
-    const card = repLeaderCard(meta.subject ?? 'Group', top);
+    const body = repLeaderCard(meta.subject ?? 'Group', top);
 
     if (!top.length) {
-      await reply(card);
+      await reply(body);
       return;
     }
 
@@ -44,10 +47,14 @@ export default {
       rowId:       `${prefix}activity ${m.jid.split('@')[0]}`,
     }));
 
-    await sendInteractive(sock, jid, msg, {
-      body:    card,
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [selectButton('👤 View Member', rows, 'Reputation Board')],
-    }, card);
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'leaderboard',
+      settings,
+      forceHero: true,
+      buttons:   [selectButton('👤 View Member', rows, 'Reputation Board')],
+      fallback:  body,
+    });
   },
 };

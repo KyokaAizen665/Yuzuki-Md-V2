@@ -9,11 +9,14 @@
  *   .quests          — view today's quests and progress
  *   .quest           — alias
  *   .quests claim    — claim all completed quests
+ *
+ * VRS: heroType 'rpg' — fantasy/adventure imagery
  */
 
-import { loadDB, addXP, addCoins, initUserDB }  from '../../lib/database.js';
-import { getQuestState, setQuestState, updateStat } from '../../lib/games-db.js';
-import { DAILY_QUESTS, getDailyQuestDisplay }   from '../../lib/rpg.js';
+import { loadDB, addXP, addCoins, initUserDB }      from '../../lib/database.js';
+import { getQuestState, setQuestState, updateStat }  from '../../lib/games-db.js';
+import { DAILY_QUESTS, getDailyQuestDisplay }        from '../../lib/rpg.js';
+import { sendHeroCard }                              from '../../lib/visual-response.js';
 
 function progressBar(cur, target, width = 8) {
   const fill  = Math.round(Math.min(cur / target, 1) * width);
@@ -65,44 +68,58 @@ export default {
       const { leveled, newLevel } = addXP(sender, totalXp, settings?.pushName);
       updateStat(sender, 'questsDone', claimable.length);
 
-      const db      = loadDB();
-      let text =
+      const db = loadDB();
+      let body =
         `🎯 *Quests Claimed!*\n${'─'.repeat(22)}\n\n` +
         earned.join('\n') +
         `\n\n💰 Total: *+${totalCoins} coins*\n` +
         `✨ XP:    *+${totalXp}*\n` +
         `💳 Balance: *${db.users[sender]?.money ?? 0} coins*`;
 
-      if (leveled) text += `\n\n🎉 *Level Up!* You reached *Level ${newLevel}*!`;
-      await sock.sendMessage(jid, { text }, { quoted: msg });
+      if (leveled) body += `\n\n🎉 *Level Up!* You reached *Level ${newLevel}*!`;
+
+      await sendHeroCard(sock, jid, msg, {
+        body,
+        footer:    settings?.botName ?? 'Yuzuki MD',
+        heroType:  'rpg',
+        settings,
+        forceHero: true,
+        fallback:  body,
+      });
       return;
     }
 
     // ── View quests ───────────────────────────────────────────────────────────
     const today = new Date().toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-    let text = `🎯 *Daily Quests*  _${today}_\n${'─'.repeat(22)}\n\n`;
+    let body = `🎯 *Daily Quests*  _${today}_\n${'─'.repeat(22)}\n\n`;
 
     for (const q of display) {
       const bar    = progressBar(q.progress, q.target);
       const status = q.claimed ? '✅ Claimed' : q.done ? '🟢 Done — claim!' : `${q.progress}/${q.target}`;
-      text +=
+      body +=
         `${q.claimed ? '✅' : q.done ? '🟡' : '⬜'} ${q.label}\n` +
         `   ${bar} ${status}\n` +
         `   _Reward: ${q.reward.coins}🪙 + ${q.reward.xp}✨_\n\n`;
     }
 
-    const allDone     = display.every(q => q.done);
-    const anyClaimed  = display.some(q => q.claimed);
-    const claimable   = display.filter(q => q.done && !q.claimed).length;
+    const allDone    = display.every(q => q.done);
+    const anyClaimed = display.some(q => q.claimed);
+    const claimable  = display.filter(q => q.done && !q.claimed).length;
 
     if (claimable) {
-      text += `_${claimable} quest${claimable > 1 ? 's' : ''} ready to claim! Use \`${prefix}quests claim\`_`;
+      body += `_${claimable} quest${claimable > 1 ? 's' : ''} ready to claim! Use \`${prefix}quests claim\`_`;
     } else if (allDone && anyClaimed) {
-      text += `🎊 All quests done for today! Come back tomorrow.`;
+      body += `🎊 All quests done for today! Come back tomorrow.`;
     } else {
-      text += `_Quests reset daily at midnight._`;
+      body += `_Quests reset daily at midnight._`;
     }
 
-    await sock.sendMessage(jid, { text }, { quoted: msg });
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:   settings?.botName ?? 'Yuzuki MD',
+      heroType: 'rpg',
+      settings,
+      fallback: body,
+    });
   },
 };

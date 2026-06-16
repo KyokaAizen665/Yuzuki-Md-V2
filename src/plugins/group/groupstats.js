@@ -7,11 +7,14 @@
  * Usage:
  *   .groupstats    — full stats overview
  *   .gstats        — alias
+ *
+ * VRS: heroType 'group' — ocean/coastal imagery
  */
 
-import { getGroupStats }                                     from '../../lib/group-db.js';
-import { statsCard }                                         from '../../lib/group-cards.js';
-import { sendInteractive, selectButton, copyButton }         from '../../lib/interactive.js';
+import { getGroupStats }                from '../../lib/group-db.js';
+import { statsCard }                    from '../../lib/group-cards.js';
+import { sendHeroCard, copyButton }     from '../../lib/visual-response.js';
+import { selectButton }                 from '../../message-engine/index.js';
 
 export default {
   name:        'groupstats',
@@ -33,21 +36,25 @@ export default {
     const memberCount = meta.participants?.length ?? 0;
     const groupName   = meta.subject ?? 'Group';
 
-    const card = statsCard(groupName, memberCount, stats);
+    const body = statsCard(groupName, memberCount, stats);
 
-    await sendInteractive(sock, jid, msg, {
-      body:    card,
-      footer:  settings?.botName ?? 'Yuzuki MD',
-      buttons: [
-        copyButton('📋 Copy Stats', card),
+    await sendHeroCard(sock, jid, msg, {
+      body,
+      footer:    settings?.botName ?? 'Yuzuki MD',
+      heroType:  'group',
+      settings,
+      forceHero: true,
+      buttons:   [
+        copyButton('📋 Copy Stats', body),
         selectButton('📊 Explore More', [
-          { title: '🏆 Activity Board',  rowId: `${prefix}activity`,   description: 'Top active members' },
+          { title: '🏆 Activity Board',  rowId: `${prefix}activity`,   description: 'Top active members'    },
           { title: '⭐ Rep Board',        rowId: `${prefix}toprep`,     description: 'Reputation leaderboard' },
           { title: '💡 Insights',         rowId: `${prefix}insights`,   description: 'Group health dashboard' },
-          { title: '📈 Engagement',       rowId: `${prefix}engagement`, description: 'Message metrics' },
-          { title: '👋 Welcome Stats',    rowId: `${prefix}welcoming`,  description: 'Join and leave data' },
+          { title: '📈 Engagement',       rowId: `${prefix}engagement`, description: 'Message metrics'        },
+          { title: '👋 Welcome Stats',    rowId: `${prefix}welcoming`,  description: 'Join and leave data'    },
         ], 'Analytics'),
       ],
-    }, card);
+      fallback: body,
+    });
   },
 };
