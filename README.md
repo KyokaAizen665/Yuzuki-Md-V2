@@ -7,8 +7,8 @@
 <img src="https://img.shields.io/badge/Node.js-20+-green?style=for-the-badge">
 <img src="https://img.shields.io/badge/Platform-WhatsApp-success?style=for-the-badge">
 <img src="https://img.shields.io/badge/License-MIT-pink?style=for-the-badge">
-</p></div>
----
+</p></div> ---
+
 
 
 > [!NOTE]
