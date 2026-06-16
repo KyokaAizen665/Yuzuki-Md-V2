@@ -12,6 +12,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import chalk from "chalk";
 import { loadSettings, setSetting } from "./settings.js";
+import { sendCard, urlButton, prepareImageHeader } from "./message-engine/interactive.js";
 import { handleCommand } from "./commands.js";
 import { handleStickerTrigger } from "./lib/sticker-trigger.js";
 import { games } from "./lib/games.js";
@@ -438,25 +439,44 @@ export async function startBot() {
       const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
       
       if (ownerJid) {
-        const botName = state.botName || startupCfg.botName || "Yuzuki MD";
-        // FIX: Use local timezone instead of hardcoded en-US
         const now = new Date().toLocaleString(undefined, {
           weekday: "short", month: "short", day: "numeric",
           hour: "2-digit", minute: "2-digit", second: "2-digit",
         });
-        //Next upgrage add contextInfo to this message for a thumbnail (small)
-        sock.sendMessage(ownerJid, {
-          text:
-            `⚡ *Yuzuki MD is now online!*\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `✅ *Status:* Connected\n` +
-            `📱 *Bot Number:* ${state.phoneNumber ?? "unknown"}\n` +
-            `👑 *Owner:* ${ownerPhone}\n` +
-            `🔑 *Prefix:* ${startupCfg.prefix ?? "."}\n` +
-            `🕐 *Time:* ${now}\n` +
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `_Type ${startupCfg.prefix ?? "."}menu or .allmenu to get started_`,
-        }).catch(() => {}); // silent if owner hasn't messaged bot yet
+
+        const heroUrl = "https://www.upload.ee/image/19419994/file.jpg";
+
+        (async () => {
+          try {
+            const mediaHeader = await prepareImageHeader(sock, { url: heroUrl });
+            await sendCard(sock, ownerJid, null, {
+              body:
+                `⚡ *Yuzuki MD is now online!*\n` +
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `✅ *Status:* Connected\n` +
+                `📱 *Bot Number:* ${state.phoneNumber ?? "unknown"}\n` +
+                `👑 *Owner:* ${ownerPhone}\n` +
+                `🔑 *Prefix:* ${startupCfg.prefix ?? "."}\n` +
+                `🕐 *Time:* ${now}\n` +
+                `━━━━━━━━━━━━━━━━━━━\n\n` +
+                `🌸 Yuzuki is ready to serve users.\n\n` +
+                `_Type ${startupCfg.prefix ?? "."}menu to get started._`,
+              footer: "Yuzuki MD",
+              mediaHeader,
+              buttons: [
+                urlButton(
+                  "📢 Join Channel",
+                  "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
+                ),
+              ],
+              fallback:
+                `⚡ Yuzuki MD is now online!\n` +
+                `Status: Connected`,
+            });
+          } catch {
+            // silent — owner may not have messaged the bot yet
+          }
+        })();
       }
 
       // ── Start background reminder service ───────────────────────────────────
