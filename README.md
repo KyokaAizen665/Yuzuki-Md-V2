@@ -9,23 +9,11 @@
 <img src="https://img.shields.io/badge/License-MIT-pink?style=for-the-badge">
 </p></div>---
 
-✨ Features
-
-...
 
 > [!NOTE]
 > This is a completely free source code.
+> Do not sell or buy.
 
-
-🖼️ Preview
-
-Main Menu
-
-<img src="https://your-main-menu-image-url.png" width="100%">Owner Menu
-
-<img src="https://your-owner-menu-image-url.png" width="100%">Interactive Menus
-
-<img src="https://your-nativeflow-image-url.png" width="100%">---
 
 📞 Contact
 
