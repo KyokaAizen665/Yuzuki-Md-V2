@@ -1,4 +1,4 @@
-<div align="center"><img src="https://your-banner-image-url.png" width="100%">🌸 Yuzuki MD
+<div align="center"><img src="https://renei-mora.my.id/file/2f23af5798.jpg" width="100%">🌸 Yuzuki MD
 
 > Modern WhatsApp Multi-Device Framework built for AI, automation, plugins, workflows, and beautiful interactive experiences.
 
