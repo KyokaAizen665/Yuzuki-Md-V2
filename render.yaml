@@ -2,7 +2,7 @@ services:
   - type: web
     name: yuzuki-md
     runtime: node
-    buildCommand: npm install
+    buildCommand: npm install -g pnpm && pnpm install --frozen-lockfile
     startCommand: node src/index.js
     nodeVersion: 20
     healthCheckPath: /health
