@@ -13,10 +13,9 @@ NODE_ENV = "production"
 SESSION_TYPE = "multifile"
 LOG_LEVEL = "info"
 PORT = "3000"
-NIXPACKS_NODE_VERSION = "20"
 # Secrets to add in Railway Dashboard:
-# PHONE_NUMBER
-# GROQ_API_KEY
-# HF_TOKEN
-# GITHUB_PERSONAL_ACCESS_TOKEN
-# PUSH_SECRET
+# PHONE_NUMBER    (required — your WhatsApp number with country code, e.g. 233533416608)
+# GROQ_API_KEY    (optional — AI chat features)
+# HF_TOKEN        (optional — image generation)
+# GITHUB_PERSONAL_ACCESS_TOKEN  (optional — .push command)
+# PUSH_SECRET     (optional — secure the /push endpoint)
