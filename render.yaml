@@ -4,20 +4,37 @@ services:
     runtime: node
     buildCommand: npm install
     startCommand: node src/index.js
+    nodeVersion: 20
     healthCheckPath: /health
     envVars:
+      # ── Required ────────────────────────────────────────────────────────────
       - key: PHONE_NUMBER
         sync: false
+      - key: SESSION_TYPE
+        value: multifile
+      - key: PORT
+        value: 3000
       - key: LOG_LEVEL
         value: info
+      # ── AI features ─────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      # ── Optional legacy AI keys ──────────────────────────────────────────────
       - key: OPENAI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-    # Persistent disk — mounts /app/data (settings.json, database.json, groups.json)
-    # The bot session is stored in /app/bot_session; you can add a second disk if needed.
+      # ── GitHub integration (.push command / /push endpoint) ──────────────────
+      - key: GITHUB_PERSONAL_ACCESS_TOKEN
+        sync: false
+      # ── Security ─────────────────────────────────────────────────────────────
+      - key: PUSH_SECRET
+        sync: false
+    # Persistent disk — stores settings.json, db, groups, and session files
     disk:
       name: yuzuki-data
       mountPath: /app/data
