@@ -6,5 +6,17 @@ dockerfilePath = "Dockerfile"
 startCommand = "node src/index.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
-# Railway health check — configure via Railway Dashboard > Service > Settings > Health Check
-# or set the env var RAILWAY_HEALTHCHECK_TIMEOUT_SEC=30
+
+# Non-sensitive defaults — set secrets in Railway Dashboard > Variables
+[variables]
+NODE_ENV = "production"
+SESSION_TYPE = "multifile"
+LOG_LEVEL = "info"
+PORT = "3000"
+NIXPACKS_NODE_VERSION = "20"
+# Secrets to add in Railway Dashboard:
+# PHONE_NUMBER
+# GROQ_API_KEY
+# HF_TOKEN
+# GITHUB_PERSONAL_ACCESS_TOKEN
+# PUSH_SECRET
