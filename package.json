@@ -6,10 +6,19 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "install-bot": "npm install"
+    "install": "pnpm install --frozen-lockfile"
   },
   "engines": {
     "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@itsliaaa/baileys",
+      "better-sqlite3",
+      "protobufjs",
+      "sharp",
+      "@napi-rs/canvas"
+    ]
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -24,8 +33,6 @@
     "cfonts": "^3.3.1",
     "chalk": "^5.6.2",
     "cheerio": "^1.2.0",
-    "cloudscraper": "^4.6.0",
-    "libsignal": "^2.0.1",
     "colors": "^1.4.0",
     "dotenv": "^16.6.1",
     "figlet": "^1.11.0",
