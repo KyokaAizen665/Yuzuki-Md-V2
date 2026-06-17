@@ -1,40 +1,22 @@
 /**
- * Interactive Layer — NativeFlow helpers
+ * Interactive Layer — NativeFlow helpers (low-level)
  *
- * Provides a clean API for building WhatsApp native interactive messages:
- *   - Copy buttons (cta_copy)
- *   - URL buttons (cta_url)
- *   - Single-select lists (single_select)
- *   - Quick replies (quick_reply)
- *   - Full interactive message assembly
- *   - Plugin-card and category-card generators
+ * Migrated to cv3inx/baileys (socketon alias still resolves).
  *
- * All builders return plain objects. Sending is done via sendInteractive().
- *
- * Usage:
- *   import { sendInteractive, copyButton, selectButton } from '../lib/interactive.js';
- *
- *   await sendInteractive(sock, jid, msg, {
- *     body:    '🤖 *ChatGPT Response*\n...',
- *     footer:  'Yuzuki MD',
- *     buttons: [copyButton('Copy', responseText)],
- *   });
+ * Button factories: copyButton, urlButton, callButton, quickReply,
+ *   selectButton, selectButtonSections
+ * Senders: sendInteractive, sendPluginCard, sendCategoryCard, sendMenuInteractive
  */
 
 import { createRequire } from 'module';
 const _require = createRequire(import.meta.url);
 const { generateWAMessageFromContent, prepareWAMessageMedia } = _require('socketon');
 
-import { getCommandsByCategory, getCategories } from './registry.js';
+import { getCommandsByCategory } from './registry.js';
 import { CATEGORY_META, buildCommandHelp } from './menu-builder.js';
 
 // ─── Button factories ─────────────────────────────────────────────────────────
 
-/**
- * Create a "copy to clipboard" NativeFlow button.
- * @param {string} displayText
- * @param {string} textToCopy
- */
 export function copyButton(displayText, textToCopy) {
   return {
     name: 'cta_copy',
@@ -42,11 +24,6 @@ export function copyButton(displayText, textToCopy) {
   };
 }
 
-/**
- * Create a URL link button.
- * @param {string} displayText
- * @param {string} url
- */
 export function urlButton(displayText, url) {
   return {
     name: 'cta_url',
@@ -55,11 +32,19 @@ export function urlButton(displayText, url) {
 }
 
 /**
- * Create a single-select (dropdown list) button.
- * @param {string} title             - Button label
- * @param {Array<{ title: string, description?: string, rowId: string }>} rows
- * @param {string} [sectionTitle]    - Section header inside the list
+ * Phone call button (cv3inx cta_call).
+ * @param {string} displayText
+ * @param {string} phoneNumber  — E.164 format recommended (e.g. "+628123456789")
  */
+export function callButton(displayText, phoneNumber) {
+  return {
+    name: 'cta_call',
+    buttonParamsJson: JSON.stringify({ display_text: displayText, phone_number: String(phoneNumber) }),
+  };
+}
+
+export const phoneCallButton = callButton;
+
 export function selectButton(title, rows, sectionTitle = 'Options') {
   return {
     name: 'single_select',
@@ -70,11 +55,6 @@ export function selectButton(title, rows, sectionTitle = 'Options') {
   };
 }
 
-/**
- * Create a multi-section single-select button.
- * @param {string} title
- * @param {Array<{ title: string, rows: Array<{ title: string, description?: string, rowId: string }> }>} sections
- */
 export function selectButtonSections(title, sections) {
   return {
     name: 'single_select',
@@ -82,11 +62,6 @@ export function selectButtonSections(title, sections) {
   };
 }
 
-/**
- * Create a quick-reply button.
- * @param {string} displayText
- * @param {string} id
- */
 export function quickReply(displayText, id) {
   return {
     name: 'quick_reply',
@@ -101,16 +76,16 @@ export function quickReply(displayText, id) {
  *
  * @param {string} jid
  * @param {object} opts
- * @param {string}   opts.body             - Message body text (supports WA markdown)
- * @param {string}   [opts.footer]         - Footer text
- * @param {string}   [opts.headerTitle]    - Text header title
- * @param {object[]} [opts.buttons]        - NativeFlow button objects
- * @param {object}   [opts.mediaHeader]    - Pre-prepared media header (from prepareWAMessageMedia)
- * @param {object}   [opts.quotedMsg]      - Message to quote ({ key, message })
- * @returns {object} content object for generateWAMessageFromContent
+ * @param {string}   opts.body
+ * @param {string}   [opts.footer]
+ * @param {string}   [opts.headerTitle]
+ * @param {object[]} [opts.buttons]
+ * @param {object}   [opts.mediaHeader]
+ * @param {object}   [opts.quotedMsg]
+ * @param {boolean}  [opts.asTemplate]   — wrap for legacy WA clients
  */
 export function buildInteractiveContent(jid, opts) {
-  const { body, footer = '', headerTitle, buttons = [], mediaHeader, quotedMsg } = opts;
+  const { body, footer = '', headerTitle, buttons = [], mediaHeader, asTemplate = false } = opts;
 
   const header = mediaHeader
     ? { title: '', subtitle: '', hasMediaAttachment: true, ...mediaHeader }
@@ -125,6 +100,18 @@ export function buildInteractiveContent(jid, opts) {
     ...(header ? { header } : {}),
   };
 
+  if (asTemplate) {
+    return {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+          templateMessage: { hydratedTemplate: { hydratedContentText: body, hydratedFooterText: footer } },
+          interactiveMessage,
+        },
+      },
+    };
+  }
+
   return {
     viewOnceMessage: {
       message: {
@@ -137,12 +124,6 @@ export function buildInteractiveContent(jid, opts) {
 
 /**
  * Send a NativeFlow interactive message.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg     - The message to quote (pass msg from execute context)
- * @param {object} opts          - Same as buildInteractiveContent opts
- * @param {string} [fallback]    - Plain-text fallback if interactive send fails
  */
 export async function sendInteractive(sock, jid, quotedMsg, opts, fallback) {
   try {
@@ -157,47 +138,24 @@ export async function sendInteractive(sock, jid, quotedMsg, opts, fallback) {
 
 // ─── Plugin cards ─────────────────────────────────────────────────────────────
 
-/**
- * Send an interactive card for a single plugin/command.
- * Includes a "copy usage" button and a "copy command name" button.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {object} cmd      - Plugin object from registry
- * @param {string} prefix
- */
 export async function sendPluginCard(sock, jid, quotedMsg, cmd, prefix) {
   const body    = buildCommandHelp(cmd, prefix);
   const usage   = (cmd.usage ?? `${prefix}${cmd.name}`).replace(/^\./, prefix);
   const buttons = [
-    copyButton('📋 Copy Usage',    usage),
-    copyButton('📝 Copy Name',     `${prefix}${cmd.name}`),
+    copyButton('📋 Copy Usage', usage),
+    copyButton('📝 Copy Name',  `${prefix}${cmd.name}`),
   ];
   await sendInteractive(sock, jid, quotedMsg, {
-    body,
-    footer:  cmd.category ?? 'Yuzuki MD',
-    buttons,
+    body, footer: cmd.category ?? 'Yuzuki MD', buttons,
   }, body);
 }
 
-/**
- * Send a category card with a select-list of commands.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} categoryKey
- * @param {string} botName
- * @param {string} prefix
- */
 export async function sendCategoryCard(sock, jid, quotedMsg, categoryKey, botName, prefix) {
   const cmds = getCommandsByCategory(categoryKey);
   if (!cmds.length) {
     await sock.sendMessage(jid, { text: `❌ No commands found in category "${categoryKey}".` }, { quoted: quotedMsg });
     return;
   }
-
   const meta  = CATEGORY_META[categoryKey] ?? { icon: '📁', title: categoryKey };
   const rows  = cmds
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -205,33 +163,18 @@ export async function sendCategoryCard(sock, jid, quotedMsg, categoryKey, botNam
     .map(cmd => ({
       title:       `${prefix}${cmd.name}`,
       description: (cmd.description ?? '').slice(0, 72),
-      rowId:    `${prefix}help ${cmd.name}`,
+      rowId:       `${prefix}help ${cmd.name}`,
     }));
 
   const body = `${meta.icon} *${meta.title} Commands*\n\n` +
     cmds.map(c => `◦ *${prefix}${c.name}*${c.description ? '  _' + c.description.slice(0, 45) + '_' : ''}`).join('\n');
 
-  const buttons = [selectButton('📂 Command Details', rows, `${meta.title} Commands`)];
-
   await sendInteractive(sock, jid, quotedMsg, {
-    body,
-    footer:      botName,
-    buttons,
+    body, footer: botName,
+    buttons: [selectButton('📂 Command Details', rows, `${meta.title} Commands`)],
   }, body);
 }
 
-/**
- * Send the main menu as an interactive message with a category select.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} caption    - Pre-built main menu caption text
- * @param {object[]} rows     - Category rows from buildMenuRows()
- * @param {string} botName
- * @param {Buffer|undefined} thumbBuf
- * @param {string} thumbUrl
- */
 export async function sendMenuInteractive(sock, jid, quotedMsg, caption, rows, botName, thumbBuf, thumbUrl) {
   let mediaHeader;
   if (thumbBuf || thumbUrl) {
@@ -242,12 +185,10 @@ export async function sendMenuInteractive(sock, jid, quotedMsg, caption, rows, b
       );
     } catch {}
   }
-
-  const buttons = [selectButton('📂 Browse Categories', rows, 'Menu Categories')];
   await sendInteractive(sock, jid, quotedMsg, {
     body:   caption,
     footer: 'Powered by YuzukiMD',
-    buttons,
+    buttons: [selectButton('📂 Browse Categories', rows, 'Menu Categories')],
     mediaHeader,
   }, caption);
 }

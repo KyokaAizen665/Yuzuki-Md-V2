@@ -2,7 +2,7 @@
  * NativeFlow Carousel — Registry-driven all-categories carousel
  *
  * The carousel (carouselMessage) is the only interactive type that has
- * no Socketon/Focashi helper — it must be assembled with
+ * no cv3inx/baileys helper — it must be assembled with
  * generateWAMessageFromContent + sock.relayMessage directly.
  *
  * This module is the single place in the framework where raw Socketon

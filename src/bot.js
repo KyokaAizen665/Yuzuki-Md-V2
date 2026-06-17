@@ -28,7 +28,7 @@ import { agentRouter } from "./agent/index.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DIR = path.resolve(__dirname, "../bot_session");
 
-// Graceful pino — falls back to a no-op compatible logger if not installed
+// ── Graceful pino logger ──────────────────────────────────────────────────────
 const _noop = () => {};
 const _makeLogger = (level = "info") => ({
   level, info: _noop, warn: _noop, error: _noop,
@@ -69,12 +69,10 @@ const log = {
   push:    (...a) => console.log(`${ts()} ${badge("#004080","#AADDFF","PUSH ")}  ${lBlue(a.map(String).join(" "))}`),
 };
 
-
 // ── Interactive phone number prompt ───────────────────────────────────────────
 async function promptPhone() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve, reject) => {
-    // FIX: Added timeout protection to prevent hanging
     const timeout = setTimeout(() => {
       rl.close();
       reject(new Error("Phone input timeout (60s)"));
@@ -90,19 +88,13 @@ async function promptPhone() {
       clearTimeout(timeout);
       rl.close();
       const cleaned = answer.replace(/[^0-9]/g, "");
-      // FIX: Validate phone number length
       if (!cleaned || cleaned.length < 10) {
         reject(new Error("Invalid phone number (too short)"));
       } else {
         resolve(cleaned);
       }
     });
-
-    // FIX: Handle readline errors
-    rl.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
+    rl.on("error", (err) => { clearTimeout(timeout); reject(err); });
   });
 }
 
@@ -116,12 +108,9 @@ export const state = {
 };
 
 let reconnectTimer = null;
-let messageHandler = null; // FIX: Track event listener to prevent duplicates
+let messageHandler = null;
 
 // ── Session validator ─────────────────────────────────────────────────────────
-// Removes corrupted JSON files from the session directory before Baileys tries
-// to load them — a corrupted creds.json or pre-key file causes silent failures
-// that look identical to network errors during pairing.
 function validateSession(sessionDir) {
   if (!fs.existsSync(sessionDir)) return;
   let removed = 0;
@@ -142,71 +131,72 @@ function validateSession(sessionDir) {
 }
 
 // ── Pairing readiness helper ──────────────────────────────────────────────────
-// Waits until the noise-protocol handshake is confirmed complete.
-// The reliable signal is `update.qr` (WhatsApp sends the QR payload once the
-// handshake is done — this is the same moment pairing codes can be requested).
-// Resolving on `connection === "connecting"` is WRONG: that fires the instant
-// the TCP connection opens, before the handshake, causing 428 errors.
-function waitForPairingReady(sock, timeoutMs = 25000) {
-  return new Promise((resolve, reject) => {
-    // Race condition guard: WebSocket may already be open before we subscribe.
-    // socketon exposes sock.ws (a standard WebSocket).
-    if (sock.ws?.readyState === 1 /* OPEN */) {
-      console.log("[PAIRING] WebSocket already OPEN — proceeding immediately");
-      return resolve("ws_already_open");
-    }
+// cv3inx/baileys exposes sock.waitForSocketOpen() which resolves when the
+// noise-protocol handshake is confirmed complete (ws.readyState === OPEN).
+// We prefer that over the QR-based approach (which was unreliable in pairing-code mode).
+async function waitForPairingReady(sock, timeoutMs = 25000) {
+  // ── Path 1: cv3inx/baileys — use built-in waitForSocketOpen() ────────────
+  if (typeof sock.waitForSocketOpen === "function") {
+    console.log("[PAIRING] Using sock.waitForSocketOpen() (cv3inx/baileys)");
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout waiting for socket open")), timeoutMs)
+    );
+    await Promise.race([sock.waitForSocketOpen(), timeoutPromise]);
+    console.log("[PAIRING] WebSocket open confirmed via waitForSocketOpen()");
+    return "socket_open";
+  }
 
+  // ── Path 2: Direct ws.readyState check (already open) ────────────────────
+  if (sock.ws?.readyState === 1 /* OPEN */) {
+    console.log("[PAIRING] WebSocket already OPEN — proceeding immediately");
+    return "ws_already_open";
+  }
+
+  // ── Path 3: Event-based fallback ──────────────────────────────────────────
+  // Listen for ws 'open' event OR the connection.update QR signal.
+  console.log("[PAIRING] Waiting for socket open via event listener...");
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      sock.ev.off("connection.update", handler);
+      sock.ev.off("connection.update", connHandler);
+      if (sock.ws?.removeListener) sock.ws.removeListener("open", wsOpenHandler);
       reject(new Error("Timeout waiting for pairing-ready signal"));
     }, timeoutMs);
 
-    function handler(update) {
-      if (update.connection === "connecting") {
-        console.log("[PAIRING] Connection update: connecting");
-      }
-      // qr → handshake done, server is waiting for auth input
-      if (update.qr) {
-        clearTimeout(timer);
-        sock.ev.off("connection.update", handler);
-        console.log("[PAIRING] Connection update: open (QR event — noise handshake complete)");
-        resolve("qr_received");
-        return;
-      }
-      // open → already authenticated (rare on fresh session, but handle it)
-      if (update.connection === "open") {
-        clearTimeout(timer);
-        sock.ev.off("connection.update", handler);
-        console.log("[PAIRING] Connection update: open");
-        resolve("connection_open");
-      }
-    }
+    const done = (reason) => {
+      clearTimeout(timer);
+      sock.ev.off("connection.update", connHandler);
+      if (sock.ws?.removeListener) sock.ws.removeListener("open", wsOpenHandler);
+      console.log(`[PAIRING] Socket ready: ${reason}`);
+      resolve(reason);
+    };
 
-    sock.ev.on("connection.update", handler);
+    // WebSocket OPEN event — fires immediately after handshake on cv3inx
+    const wsOpenHandler = () => done("ws_open_event");
+    if (sock.ws?.on) sock.ws.on("open", wsOpenHandler);
+
+    // connection.update QR signal — fallback for older Baileys forks
+    function connHandler(update) {
+      if (update.qr) done("qr_received");
+      else if (update.connection === "open") done("connection_open");
+    }
+    sock.ev.on("connection.update", connHandler);
   });
 }
 
-/**
- * Extract plain text from any message type Baileys sends.
- * FIX: added normalTextMessage support (used by newer WhatsApp clients)
- */
+// ── Text extractor ────────────────────────────────────────────────────────────
 function extractText(msg) {
   const m = msg.message;
   if (!m) return "";
   if (typeof m.conversation === "string") return m.conversation;
   if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
-  // FIX: newer WhatsApp clients send plain DMs as normalTextMessage
   if (m.normalTextMessage?.text) return m.normalTextMessage.text;
   if (m.ephemeralMessage?.message) return extractText({ message: m.ephemeralMessage.message });
   if (m.viewOnceMessage?.message) return extractText({ message: m.viewOnceMessage.message });
   if (m.buttonsResponseMessage?.selectedButtonId) return m.buttonsResponseMessage.selectedButtonId;
   if (m.listResponseMessage?.singleSelectReply?.selectedRowId) {
-    // rowIds are stored with the prefix already embedded (e.g. ".menu ai", ".plugininfo ping").
-    // Do NOT prepend another dot — just normalise underscores to spaces.
     const rowId = m.listResponseMessage.singleSelectReply.selectedRowId;
     return rowId.replace(/_/g, " ");
   }
-  // FIX: handle nativeFlowMessage button taps (interactiveResponseMessage)
   if (m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
     try {
       return JSON.parse(m.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id ?? "";
@@ -220,21 +210,42 @@ export function getBotState() {
   return rest;
 }
 
+// ── Auth state provider ───────────────────────────────────────────────────────
+// Supports both multi-file (default) and SQLite (SESSION_TYPE=sqlite) modes.
+// SQLite mode (cv3inx/baileys) uses atomic writes → survives hard restarts.
+async function loadAuthState() {
+  const sessionType = (process.env.SESSION_TYPE ?? "multifile").toLowerCase();
+
+  if (sessionType === "sqlite") {
+    try {
+      const { useSqliteAuthState } = _require("socketon");
+      if (typeof useSqliteAuthState !== "function") throw new Error("useSqliteAuthState not exported");
+      const dbPath = path.join(SESSION_DIR, "auth.db");
+      const result = await useSqliteAuthState(dbPath);
+      log.ok(`[SESSION] SQLite auth state (${chalk.dim(dbPath)})`);
+      return result;
+    } catch (err) {
+      log.warn(`[SESSION] SQLite unavailable (${err.message}) — falling back to multi-file`);
+    }
+  }
+
+  // Default: multi-file JSON state
+  const result = await useMultiFileAuthState(SESSION_DIR);
+  log.info(`[SESSION] Multi-file auth state (${chalk.dim(SESSION_DIR)})`);
+  return result;
+}
+
 export async function startBot() {
   if (!fs.existsSync(SESSION_DIR)) {
     fs.mkdirSync(SESSION_DIR, { recursive: true });
   }
 
-  // Scrub corrupted session files before Baileys loads them.
-  // A corrupted creds.json causes useMultiFileAuthState to throw or return
-  // an invalid auth state that silently breaks the pairing handshake.
   console.log("[PAIRING] Socket created");
   validateSession(SESSION_DIR);
 
   await loadPlugins();
 
-  // ── Startup: sync ownerNumber from PHONE_NUMBER env ──────────────
-  // Always keeps settings.json in sync with the Pterodactyl PHONE_NUMBER.
+  // Sync ownerNumber from PHONE_NUMBER env
   const envPhone = (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
   if (envPhone) {
     const currentOwner = loadSettings().ownerNumber;
@@ -244,7 +255,7 @@ export async function startBot() {
     }
   }
 
-  const { state: authState, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+  const { state: authState, saveCreds } = await loadAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
   logger.info({ version }, "Using WhatsApp version");
@@ -256,9 +267,6 @@ export async function startBot() {
     logger: silentLogger,
     syncFullHistory: false,
     markOnlineOnConnect: true,
-    // "Ubuntu" + Chrome is the most reliable platform string for pairing-code
-    // mode across WhatsApp versions. "Android" can cause 428s on some WA builds
-    // because the server expects a web/desktop handshake for pairing codes.
     browser: ["Ubuntu", "Chrome", "114.0.0.0"],
     patchMessageBeforeSending: (message) => {
       const requiresPatch = !!(
@@ -287,9 +295,6 @@ export async function startBot() {
 
   // Request pairing code if not yet registered
   if (!sock.authState.creds.registered) {
-    // Use PHONE_NUMBER env (headless / cloud mode) or fall back to interactive prompt.
-    // On Railway / Render / Fly.io / Docker stdin is not a TTY — promptPhone() would
-    // hang for 60 seconds then crash.  If PHONE_NUMBER is set we skip the prompt.
     let phoneNumber;
     const _envPhone = (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
     if (_envPhone) {
@@ -309,37 +314,26 @@ export async function startBot() {
       }
     }
 
-    // Save as ownerNumber automatically
     setSetting("ownerNumber", phoneNumber);
     logger.info({ phoneNumber }, "ownerNumber saved to settings.json");
 
-    // ── Pairing code request with exponential backoff ─────────────────────────
-    // Attempt 1 → wait 3 s before retry
-    // Attempt 2 → wait 5 s before retry
-    // Attempt 3 → wait 10 s then give up and restart the bot
-    // This prevents request storms on Render / Railway cold starts where
-    // the WS handshake can take significantly longer than on local machines.
+    // Retry pairing code with exponential backoff
     const PAIRING_RETRY_DELAYS = [3000, 5000, 10000];
     let pairingCode = null;
 
     for (let attempt = 1; attempt <= PAIRING_RETRY_DELAYS.length; attempt++) {
       console.log(`[PAIRING] Requesting pairing code — attempt ${attempt}/${PAIRING_RETRY_DELAYS.length}`);
       try {
-        // Wait until the noise-protocol handshake is confirmed done.
-        // On Render cold starts this can take up to 15-20 s — use a generous timeout.
         const onRender = !!(process.env.RENDER || process.env.IS_PULL_REQUEST);
-        const readyTimeout = onRender ? 30000 : 20000;
+        const readyTimeout = onRender ? 35000 : 25000;
 
         await waitForPairingReady(sock, readyTimeout).catch(async (err) => {
-          // Fallback: if the event never fires (edge case), wait a bit and try anyway.
-          // Cold-start Render boxes sometimes swallow the first connection.update.
           const fallback = onRender ? 8000 : 5000;
-          log.warn(`[PAIRING] Request blocked — ${err.message} — fallback wait ${fallback}ms`);
+          log.warn(`[PAIRING] waitForPairingReady error — ${err.message} — fallback wait ${fallback}ms`);
           await new Promise((r) => setTimeout(r, fallback));
         });
 
-        // Guard: refuse to call requestPairingCode if the WebSocket is not open.
-        // readyState: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+        // Guard: refuse to call requestPairingCode if WS is not OPEN
         const wsState = sock.ws?.readyState;
         if (wsState !== undefined && wsState !== 1) {
           throw new Error(`Socket not ready (ws.readyState=${wsState}) — cannot pair`);
@@ -348,7 +342,7 @@ export async function startBot() {
         console.log(`[PAIRING] Requesting pairing code for +${phoneNumber}`);
         pairingCode = await sock.requestPairingCode(phoneNumber);
         console.log(`[PAIRING] Pairing code received ✓`);
-        break; // success — exit retry loop
+        break;
 
       } catch (err) {
         const retryDelay = PAIRING_RETRY_DELAYS[attempt - 1];
@@ -380,50 +374,94 @@ export async function startBot() {
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
-    // ── Structured [PAIRING] lifecycle logs ──────────────────────────────────
-    if (update.qr) {
-      console.log("[PAIRING] Connection update: open (QR/handshake signal received)");
-    }
-    if (connection === "connecting") {
-      console.log("[PAIRING] Connection update: connecting");
-    }
-    if (connection === "open") {
-      console.log("[PAIRING] Connection update: open");
-    }
+    if (update.qr)                        console.log("[PAIRING] Connection update: open (QR/handshake signal received)");
+    if (connection === "connecting")       console.log("[PAIRING] Connection update: connecting");
+    if (connection === "open")             console.log("[PAIRING] Connection update: open");
 
     if (connection === "close") {
-      state.connected = false;
+      state.connected  = false;
       state.phoneNumber = null;
-      state.startedAt = null;
+      state.startedAt  = null;
       state.pairingCode = null;
-      state.socket = null;
+      state.socket     = null;
       stopReminderService();
 
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      // ── Structured disconnect diagnostics ───────────────────────────────────
+      const err        = lastDisconnect?.error;
+      const statusCode = err?.output?.statusCode ?? err?.output?.payload?.statusCode;
+      const errMsg     = err?.message ?? err?.output?.payload?.message ?? String(err ?? "unknown");
+      const errPayload = err?.output?.payload ?? {};
+      const errStack   = err?.stack;
 
+      console.log(`[DISCONNECT] ${"─".repeat(48)}`);
+      console.log(`[DISCONNECT] Status Code : ${chalk.yellow(statusCode ?? "undefined")}`);
+      console.log(`[DISCONNECT] Error Msg   : ${chalk.red(errMsg)}`);
+      if (Object.keys(errPayload).length)
+        console.log(`[DISCONNECT] Payload     : ${chalk.dim(JSON.stringify(errPayload))}`);
+      if (errStack)
+        console.log(`[DISCONNECT] Stack       :\n${chalk.dim(errStack)}`);
+      console.log(`[DISCONNECT] ${"─".repeat(48)}`);
+
+      // ── Disconnect reason routing ──────────────────────────────────────────
+      //   401 / loggedOut   → clear session, restart (user must re-pair)
+      //   403 / forbidden   → account banned; do NOT reconnect
+      //   500 / badSession  → corrupted session; wipe and restart
+      //   515 / restartReq  → server-side restart required; reconnect immediately
+      //   default           → generic reconnect with 5 s delay
+
+      if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
+        log.err("[DISCONNECT] Logged out — clearing session and restarting");
+        if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+        setTimeout(() => startBot().catch(console.error), 3000);
+        return;
+      }
+
+      if (statusCode === 403) {
+        log.err("[DISCONNECT] Account forbidden/banned — NOT reconnecting");
+        return;
+      }
+
+      if (statusCode === 500) {
+        log.err("[DISCONNECT] Bad session (500) — wiping session and restarting");
+        if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+        setTimeout(() => startBot().catch(console.error), 3000);
+        return;
+      }
+
+      if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
+        log.warn("[DISCONNECT] Restart required by server — reconnecting in 1s");
+        setTimeout(() => startBot().catch(console.error), 1000);
+        return;
+      }
+
+      if (statusCode === 516) {
+        log.warn("[DISCONNECT] Connection replaced (another session opened) — reconnecting in 5s");
+        setTimeout(() => startBot().catch(console.error), 5000);
+        return;
+      }
+
+      // Default: reconnect unless explicitly logged out
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 403;
       log.discon(`status=${chalk.yellow(statusCode)} reconnect=${chalk.cyan(shouldReconnect)}`);
 
       if (shouldReconnect) {
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => {
-          startBot().catch((err) => logger.error({ err }, "Failed to restart bot"));
+          startBot().catch((e) => logger.error({ err: e }, "Failed to restart bot"));
         }, 5000);
       }
     }
 
     if (connection === "open") {
-      state.connected = true;
+      state.connected   = true;
       state.pairingCode = null;
-      state.startedAt = new Date();
-      const jid = sock.user?.id ?? null;
+      state.startedAt   = new Date();
+      const jid         = sock.user?.id ?? null;
       state.phoneNumber = jid ? jid.split(":")[0] ?? null : null;
-      state.botName = sock.user?.name ?? null;
+      state.botName     = sock.user?.name ?? null;
       log.connect(`${chalk.greenBright(state.botName ?? "Bot")} ${chalk.dim("phone=")}${chalk.green(state.phoneNumber ?? "?")}`);
 
-      // ── HARD FIX: always sync ownerNumber from the real connected JID ────
-      // This ensures the owner check never fails due to number format mismatch.
-      // The JID from sock.user.id is the ground truth — no +, no leading 0, just digits.
+      // Sync ownerNumber from real connected JID
       if (state.phoneNumber) {
         const savedOwner = loadSettings().ownerNumber;
         if (savedOwner !== state.phoneNumber) {
@@ -432,18 +470,16 @@ export async function startBot() {
         }
       }
 
-      // ── WhatsApp startup notification to owner ────────────────────
+      // Startup notification to owner
       const startupCfg = loadSettings();
-      // FIX: Simplified redundant phone number extraction
       const ownerPhone = startupCfg.ownerNumber || (process.env.PHONE_NUMBER ?? "").replace(/[^0-9]/g, "");
-      const ownerJid = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
-      
+      const ownerJid   = ownerPhone ? `${ownerPhone}@s.whatsapp.net` : null;
+
       if (ownerJid) {
         const now = new Date().toLocaleString(undefined, {
           weekday: "short", month: "short", day: "numeric",
           hour: "2-digit", minute: "2-digit", second: "2-digit",
         });
-
         const heroUrl = "https://www.upload.ee/image/19419994/file.jpg";
 
         (async () => {
@@ -463,44 +499,30 @@ export async function startBot() {
                 `_Type ${startupCfg.prefix ?? "."}menu to get started._`,
               footer: "Yuzuki MD",
               mediaHeader,
-              buttons: [
-                urlButton(
-                  "📢 Join Channel",
-                  "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326"
-                ),
-              ],
-              fallback:
-                `⚡ Yuzuki MD is now online!\n` +
-                `Status: Connected`,
+              buttons: [urlButton("📢 Join Channel", "https://whatsapp.com/channel/0029Vb7eSHf42Dcmdd3XA326")],
+              fallback: `⚡ Yuzuki MD is now online!\nStatus: Connected`,
             });
-          } catch {
-            // silent — owner may not have messaged the bot yet
-          }
+          } catch { /* owner may not have messaged bot yet */ }
         })();
       }
 
-      // ── Start background reminder service ───────────────────────────────────
       startReminderService(sock);
     }
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ── Group participant events: welcome / goodbye cards ─────────────────
-  sock.ev.on("group-participants.update",
-    (update) => participantsUpdate(sock, update)
-  );
+  sock.ev.on("group-participants.update", (update) => participantsUpdate(sock, update));
 
-
-  // FIX: Remove old listener before adding new one to prevent duplicates
+  // Remove old listener before registering new one (prevents duplicates)
   if (messageHandler) {
     sock.ev.off("messages.upsert", messageHandler);
   }
 
-  // FIX: Cache settings to avoid reloading on every message
+  // Settings cache (30 s) to reduce file I/O
   let cachedSettings = null;
   let settingsCacheTime = 0;
-  const CACHE_TTL = 30000; // 30 seconds
+  const CACHE_TTL = 30000;
 
   messageHandler = async ({ messages, type }) => {
     log.event(`messages.upsert ${chalk.white("type=")}${chalk.cyan(type)} ${chalk.white("count=")}${chalk.cyan(messages.length)}`);
@@ -510,11 +532,10 @@ export async function startBot() {
       return;
     }
 
-    // FIX: Cache settings to reduce file I/O
-    const now = Date.now();
-    if (!cachedSettings || now - settingsCacheTime > CACHE_TTL) {
+    const now2 = Date.now();
+    if (!cachedSettings || now2 - settingsCacheTime > CACHE_TTL) {
       cachedSettings = loadSettings();
-      settingsCacheTime = now;
+      settingsCacheTime = now2;
     }
     const settings = cachedSettings;
 
@@ -524,9 +545,7 @@ export async function startBot() {
       log.msg(msgFrom, msgTypes[0] ?? "unknown", extractText(msg));
 
       if (msg.key.fromMe) {
-        // Linked-device bot: owner's own typing also arrives as fromMe.
-        // Let command-like messages through; skip bot's own replies.
-        const quickText = extractText(msg);
+        const quickText   = extractText(msg);
         const quickPrefix = settings.prefix ?? ".";
         if (!quickText || !quickText.startsWith(quickPrefix)) {
           log.skip(`fromMe non-command ${chalk.dim("(bot reply)")}`);
@@ -542,7 +561,7 @@ export async function startBot() {
       const text = extractText(msg);
       log.info(`Extracted: ${chalk.white(text || chalk.dim("(empty)"))}`);
 
-      // ── Group activity tracker + anti-spam ─────────────────────────────────
+      // Group activity tracker + anti-spam
       if (msg.key.remoteJid?.endsWith("@g.us") && !msg.key.fromMe && msg.message) {
         const _gJid    = msg.key.remoteJid;
         const _tSender = msg.key.participant ?? "";
@@ -559,58 +578,42 @@ export async function startBot() {
         }
       }
 
-      if (!text) {
-        log.skip("empty text");
-        continue;
-      }
-      // ── Sticker command trigger (feature 6) ───────────────────────────────
+      if (!text) { log.skip("empty text"); continue; }
+
+      // Sticker trigger
       const _stickerMsg = msg?.message?.stickerMessage;
       if (_stickerMsg) {
-        try {
-          await handleStickerTrigger(sock, msg, { jid: msg.key.remoteJid, handleCommand });
-        } catch {}
+        try { await handleStickerTrigger(sock, msg, { jid: msg.key.remoteJid, handleCommand }); } catch {}
       }
 
-      // ── Workflow intercept ────────────────────────────────────────────────
-      // Runs before the game handler and prefix check so workflow steps receive
-      // both plain text ("1", "audio") and prefixed commands (".cancel").
-      // resume() returns true  → message consumed; skip all further processing.
-      // resume() returns false → no active workflow (or an interrupting command);
-      //                          continue to normal routing below.
+      // Workflow intercept
       if (workflowManager.has(msg.key.remoteJid)) {
         const _wfHandled = await workflowManager.resume(
-          msg.key.remoteJid,
-          text,
-          { sock, msg, settings },
+          msg.key.remoteJid, text, { sock, msg, settings },
         ).catch(() => false);
         if (_wfHandled) continue;
       }
 
-      // ── Games Engine input router ─────────────────────────────────────────
-      // Routes unprefixed messages to any active game session (battles, ttt, etc.)
-      // Returns true if consumed — skips legacy YuzukiGames handler and prefix check.
+      // Games Engine input router
       if (text && !text.startsWith(settings?.prefix ?? ".")) {
         const _jid    = msg.key.remoteJid;
         const _sender = msg.key.participant || msg.key.remoteJid;
         if (gamesEngine.isActive(_jid)) {
           const _engineHandled = await gamesEngine.routeInput(
-            _jid, text,
-            { sock, msg, sender: _sender, settings },
+            _jid, text, { sock, msg, sender: _sender, settings },
           ).catch(() => false);
           if (_engineHandled) continue;
         }
       }
 
-      // ── YuzukiGames answer handler (legacy — Q&A games via lib/games.js) ─────
+      // YuzukiGames legacy Q&A handler
       if (text && !text.startsWith(settings?.prefix ?? ".")) {
         try {
-          const _chatId = msg.key.remoteJid;
-          const _sender = msg.key.participant || msg.key.remoteJid;
-          const _ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
-          const _mAdapt = {
-            chat: _chatId,
-            body: text,
-            sender: _sender,
+          const _chatId   = msg.key.remoteJid;
+          const _sender   = msg.key.participant || msg.key.remoteJid;
+          const _ctxInfo  = msg.message?.extendedTextMessage?.contextInfo;
+          const _mAdapt   = {
+            chat: _chatId, body: text, sender: _sender,
             pushName: msg.pushName || "",
             quoted: _ctxInfo ? { id: _ctxInfo.stanzaId, fromMe: _ctxInfo.fromMe ?? false, isBaileys: false } : null,
             reply: async (txt, _opts) => {
@@ -628,7 +631,7 @@ export async function startBot() {
 
       try {
         const prefix = settings.prefix ?? ".";
-        const mode = settings.mode ?? "public";
+        const mode   = settings.mode   ?? "public";
 
         log.info(`Settings ${chalk.white("prefix=")}${chalk.cyan(prefix)} ${chalk.white("mode=")}${chalk.cyan(mode)} ${chalk.white("gconly=")}${chalk.cyan(settings.gconly)}`);
 
@@ -644,29 +647,23 @@ export async function startBot() {
         }
 
         if (mode === "self" && !msg.key.fromMe) {
-          // fromMe messages are always from the owner (linked device),
-          // so skip this gate for them.
           const senderJid = msg.key.participant ?? msg.key.remoteJid ?? "";
-          const ownerNum = settings.ownerNumber;
+          const ownerNum  = settings.ownerNumber;
           if (!ownerNum || !senderJid.startsWith(ownerNum)) {
             log.skip(`self mode — ${chalk.dim(senderJid.split("@")[0])} is not owner`);
             continue;
           }
         }
 
-        const body = text.slice(prefix.length).trim();
-        const parts = body.split(/\s+/);
+        const body    = text.slice(prefix.length).trim();
+        const parts   = body.split(/\s+/);
         const command = (parts[0] ?? "").toLowerCase();
-        const args = parts.slice(1).filter(Boolean);
+        const args    = parts.slice(1).filter(Boolean);
 
         if (!command) continue;
 
         log.cmd(`${chalk.white(".")}${chalk.magentaBright(command)} ${chalk.dim(args.join(" "))}`);
-        // ── Agent layer: try multi-step workflow before single command ────────
-        // agentRouter.route() receives the full body (prefix stripped) so it
-        // can match natural-language patterns that span multiple words.
-        // Returns true if a workflow claimed the message; false to fall through.
-        // FIX: declare msgJid locally — `jid` is not in scope inside messageHandler
+
         const msgJid = msg.key.remoteJid;
         const _agentClaimed = await agentRouter.route(
           sock, msg, msgJid,
@@ -677,7 +674,7 @@ export async function startBot() {
           log.ok(`${chalk.cyanBright("agent")} claimed ${chalk.dim(body.slice(0, 40))}`);
           continue;
         }
-        // FIX: Better error handling for command execution
+
         try {
           await handleCommand({ sock, msg, command, args });
           log.ok(`${chalk.greenBright("." + command)} completed`);
@@ -695,12 +692,8 @@ export async function startBot() {
 }
 
 export async function stopBot() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (state.socket) {
-    // FIX: Remove message handler before closing
     if (messageHandler) {
       state.socket.ev.off("messages.upsert", messageHandler);
       messageHandler = null;
@@ -708,16 +701,14 @@ export async function stopBot() {
     await state.socket.logout().catch(() => {});
     state.socket = null;
   }
-  state.connected = false;
+  state.connected   = false;
   state.phoneNumber = null;
-  state.startedAt = null;
+  state.startedAt   = null;
   state.pairingCode = null;
 }
 
 export async function clearSession() {
   await stopBot();
-  if (fs.existsSync(SESSION_DIR)) {
-    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-  }
+  if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
   await startBot();
 }

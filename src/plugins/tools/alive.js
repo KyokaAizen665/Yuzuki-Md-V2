@@ -37,7 +37,7 @@ export default {
       ['Prefix',  `\`${settings.prefix ?? '.'}\``],
       ['Mode',    (settings.mode ?? 'public').toUpperCase()],
       ['Uptime',  uptimeStr],
-    ], 'Yuzuki MD v2 • Powered by focashi');
+    ], 'Yuzuki MD v2 • Powered by cv3inx/baileys');
 
     const payload = await previewCard(text, {
       title:     botName,

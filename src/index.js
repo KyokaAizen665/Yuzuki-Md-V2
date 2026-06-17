@@ -25,7 +25,7 @@ function printBanner() {
     b("        .'") + lb("  🐋  ") + w("Y U Z U K I  M D") + lb("  v2  ") + b("'.       "),
     b("       /") + d("   ─────────────────────────────") + b("  \\      "),
     b("      :") + d("      WhatsApp Bot  •  Baileys Fork    ") + b(":     "),
-    b("      :") + d(`      Node ${process.version}  •  Powered by focashi  `) + b(":     "),
+    b("      :") + d(`      Node ${process.version}  •  Powered by cv3inx/baileys  `) + b(":     "),
     b("      :") + d("      ") + c("github.com/KyokaAizen665/Yuzuki-Md-V2") + b(":  "),
     b("      :") + d("                                       ") + b(":___  "),
     b("       \\") + d("  ─────────────────────────────────") + b("/") + lb("~~~~"),

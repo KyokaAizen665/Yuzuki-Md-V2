@@ -2,26 +2,24 @@
  * Message Engine — Interactive Layer
  *
  * NativeFlow interactive message builders and senders.
- * This module is the canonical source for all interactive messages in the bot.
- * It wraps and extends the lower-level helpers in src/lib/interactive.js,
- * adding consistent error handling, a unified API, and richer button factories.
+ * Migrated to cv3inx/baileys — all socketon aliases still resolve correctly.
  *
- * Architecture note:
- *   src/lib/interactive.js  — low-level Socketon payload assembly (do not call directly)
- *   src/message-engine/interactive.js  — THIS FILE — the public API for all bot code
+ * Button factories:
+ *   copyButton(label, text)
+ *   urlButton(label, url)
+ *   callButton(label, phoneNumber)     ← NEW (cv3inx cta_call)
+ *   quickReply(label, id)
+ *   selectButton(label, rows, title?)
+ *   selectButtonSections(label, sections)
  *
- * Return shape (send* functions):
- *   { ok: true,  sent: <WAMessage> }
- *   { ok: false, error: <Error>, fallbackSent?: <WAMessage> }
- *
- * Usage:
- *   import { sendCard, copyButton, urlButton, selectButton } from '../message-engine/interactive.js';
- *
- *   await sendCard(sock, jid, msg, {
- *     body:    '✅ *Done!*\nYour task has been saved.',
- *     footer:  'Yuzuki MD',
- *     buttons: [copyButton('Copy ID', taskId)],
- *   });
+ * Interactive senders:
+ *   sendCard(sock, jid, quotedMsg, opts)
+ *   sendMenuCard(...)
+ *   sendCommandCard(...)
+ *   sendCategoryCard(...)
+ *   sendSearchCard(...)
+ *   prepareImageHeader(sock, imageSource)
+ *   buildContent(opts)
  */
 
 import { createRequire } from 'module';
@@ -40,13 +38,9 @@ async function safe(fn) {
 }
 
 // ─── Button factories ─────────────────────────────────────────────────────────
-// These return NativeFlow button objects. Pass them in the `buttons` array.
 
 /**
  * "Copy to clipboard" button.
- * @param {string} label
- * @param {string} textToCopy
- * @returns {object} NativeFlow button
  */
 export function copyButton(label, textToCopy) {
   return {
@@ -57,9 +51,6 @@ export function copyButton(label, textToCopy) {
 
 /**
  * URL / link button.
- * @param {string} label
- * @param {string} url
- * @returns {object} NativeFlow button
  */
 export function urlButton(label, url) {
   return {
@@ -69,11 +60,23 @@ export function urlButton(label, url) {
 }
 
 /**
+ * Phone call button (cv3inx cta_call).
+ * Opens the dialer pre-filled with the given phone number.
+ * @param {string} label
+ * @param {string} phoneNumber  — E.164 format recommended (e.g. "+628123456789")
+ */
+export function callButton(label, phoneNumber) {
+  return {
+    name: 'cta_call',
+    buttonParamsJson: JSON.stringify({ display_text: label, phone_number: String(phoneNumber) }),
+  };
+}
+
+/** Alias for callButton */
+export const phoneCallButton = callButton;
+
+/**
  * Single-select dropdown button (one section of rows).
- * @param {string} label             - Button display label
- * @param {Array<{ title: string, description?: string, rowId: string }>} rows
- * @param {string} [sectionTitle]    - Section header inside the list
- * @returns {object} NativeFlow button
  */
 export function selectButton(label, rows, sectionTitle = 'Options') {
   return {
@@ -86,10 +89,7 @@ export function selectButton(label, rows, sectionTitle = 'Options') {
 }
 
 /**
- * Multi-section select button.
- * @param {string} label
- * @param {Array<{ title: string, rows: Array<{ title: string, description?: string, rowId: string }> }>} sections
- * @returns {object} NativeFlow button
+ * Multi-section single-select button.
  */
 export function selectButtonSections(label, sections) {
   return {
@@ -99,10 +99,7 @@ export function selectButtonSections(label, sections) {
 }
 
 /**
- * Quick-reply button.
- * @param {string} label
- * @param {string} id    - The text sent back when tapped
- * @returns {object} NativeFlow button
+ * Quick-reply button (sends the id as a message when tapped).
  */
 export function quickReply(label, id) {
   return {
@@ -114,35 +111,106 @@ export function quickReply(label, id) {
 // ─── Content builder ──────────────────────────────────────────────────────────
 
 /**
- * Build a viewOnce interactiveMessage content object (for generateWAMessageFromContent).
+ * Build a viewOnce interactiveMessage content object.
  *
  * @param {object} opts
- * @param {string}   opts.body           - Message body (supports WA markdown)
- * @param {string}   [opts.footer]       - Footer text
- * @param {string}   [opts.headerTitle]  - Text header title
- * @param {object[]} [opts.buttons]      - NativeFlow button objects
- * @param {object}   [opts.mediaHeader]  - Pre-prepared media header (prepareWAMessageMedia result)
- * @returns {object} content object for generateWAMessageFromContent
+ * @param {string}   opts.body
+ * @param {string}   [opts.footer]
+ * @param {string}   [opts.headerTitle]
+ * @param {object[]} [opts.buttons]
+ * @param {object}   [opts.mediaHeader]
+ * @param {boolean}  [opts.asTemplate]   — wrap in templateMessage for legacy WA clients
+ * @returns {object}
  */
-export function buildContent({ body, footer = '', headerTitle, buttons = [], mediaHeader } = {}) {
+export function buildContent({
+  body, footer = '', headerTitle, buttons = [], mediaHeader, asTemplate = false,
+} = {}) {
   const header = mediaHeader
     ? { title: '', subtitle: '', hasMediaAttachment: true, ...mediaHeader }
     : headerTitle
       ? { title: headerTitle, subtitle: '', hasMediaAttachment: false }
       : undefined;
 
+  const interactiveMessage = {
+    body:   { text: body },
+    footer: { text: footer },
+    nativeFlowMessage: { buttons },
+    ...(header ? { header } : {}),
+  };
+
+  // asTemplate mode wraps the interactive in a templateMessage so older WA
+  // clients that do not support nativeFlowMessage still render something.
+  if (asTemplate) {
+    return {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+          templateMessage: {
+            hydratedTemplate: {
+              hydratedContentText: body,
+              hydratedFooterText: footer,
+              hydratedButtons: buttons.map((b) => ({
+                index: 0,
+                urlButton: b.name === 'cta_url'
+                  ? { displayText: JSON.parse(b.buttonParamsJson).display_text, url: JSON.parse(b.buttonParamsJson).url }
+                  : undefined,
+                callButton: b.name === 'cta_call'
+                  ? { displayText: JSON.parse(b.buttonParamsJson).display_text, phoneNumber: JSON.parse(b.buttonParamsJson).phone_number }
+                  : undefined,
+                quickReplyButton: b.name === 'quick_reply'
+                  ? { displayText: JSON.parse(b.buttonParamsJson).display_text, id: JSON.parse(b.buttonParamsJson).id }
+                  : undefined,
+              })).filter(b => b.urlButton || b.callButton || b.quickReplyButton),
+            },
+          },
+          interactiveMessage,
+        },
+      },
+    };
+  }
+
   return {
     viewOnceMessage: {
       message: {
         messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-        interactiveMessage: {
-          body:   { text: body },
-          footer: { text: footer },
-          nativeFlowMessage: { buttons },
-          ...(header ? { header } : {}),
-        },
+        interactiveMessage,
       },
     },
+  };
+}
+
+// ─── Offer overlay builder ────────────────────────────────────────────────────
+
+/**
+ * Build an offer overlay context (economy / promo commands).
+ * Attach the returned object as opts.offerInfo on sendCard.
+ *
+ * @param {string} offerText           — headline offer text
+ * @param {string} offerUrl            — promo URL
+ * @param {string} [offerCode]         — discount code (optional)
+ * @param {number} [expirationUnix]    — Unix timestamp (seconds) when offer expires
+ * @returns {object} offerInfo object to merge into interactiveMessage
+ */
+export function buildOfferInfo(offerText, offerUrl, offerCode, expirationUnix) {
+  return {
+    offerText,
+    ...(offerUrl   ? { offerUrl }   : {}),
+    ...(offerCode  ? { offerCode }  : {}),
+    ...(expirationUnix ? { offerExpiration: expirationUnix } : {}),
+  };
+}
+
+/**
+ * Build a bottom-sheet / option overlay (shows a slide-up sheet on tap).
+ *
+ * @param {string} buttonText   — label on the button that opens the sheet
+ * @param {string} [title]      — optional sheet title
+ * @returns {object} optionInfo object to merge into interactiveMessage
+ */
+export function buildOptionInfo(buttonText, title) {
+  return {
+    optionText:  buttonText,
+    ...(title ? { optionTitle: title } : {}),
   };
 }
 
@@ -150,31 +218,38 @@ export function buildContent({ body, footer = '', headerTitle, buttons = [], med
 
 /**
  * Send a NativeFlow interactive card.
- *
- * Falls back to a plain text message if the interactive send fails,
- * so the user always gets a response even on older WhatsApp versions.
+ * Falls back to plain text on failure so users always get a response.
  *
  * @param {object} sock
  * @param {string} jid
- * @param {object} quotedMsg          - Message to quote (pass msg from execute context)
+ * @param {object} quotedMsg
  * @param {object} opts
  * @param {string}   opts.body
  * @param {string}   [opts.footer]
  * @param {string}   [opts.headerTitle]
  * @param {object[]} [opts.buttons]
  * @param {object}   [opts.mediaHeader]
- * @param {string}   [opts.fallback]  - Override fallback text (defaults to opts.body)
- * @returns {Promise<{ ok: boolean, sent?: object, error?: Error, fallbackSent?: object }>}
+ * @param {string}   [opts.fallback]
+ * @param {boolean}  [opts.asTemplate]   — use templateMessage wrapper for older clients
  */
 export async function sendCard(sock, jid, quotedMsg, opts) {
-  const { fallback, ...contentOpts } = opts;
+  const { fallback, asTemplate, offerInfo, optionInfo, ...contentOpts } = opts;
   try {
-    const content = buildContent(contentOpts);
-    const waMsg   = generateWAMessageFromContent(jid, content, { quoted: quotedMsg });
-    const sent    = await sock.relayMessage(jid, waMsg.message, { messageId: waMsg.key.id });
+    const content = buildContent({ ...contentOpts, asTemplate: asTemplate ?? false });
+
+    // Inject offerInfo / optionInfo into interactiveMessage if provided
+    if (offerInfo || optionInfo) {
+      const im = content.viewOnceMessage?.message?.interactiveMessage;
+      if (im) {
+        if (offerInfo)  Object.assign(im, offerInfo);
+        if (optionInfo) Object.assign(im, optionInfo);
+      }
+    }
+
+    const waMsg = generateWAMessageFromContent(jid, content, { quoted: quotedMsg });
+    const sent  = await sock.relayMessage(jid, waMsg.message, { messageId: waMsg.key.id });
     return { ok: true, sent };
   } catch (err) {
-    // Graceful fallback to plain text
     const fallbackText = fallback ?? opts.body;
     try {
       const fallbackSent = await sock.sendMessage(jid, { text: fallbackText }, { quoted: quotedMsg });
@@ -183,7 +258,7 @@ export async function sendCard(sock, jid, quotedMsg, opts) {
         error: err instanceof Error ? err : new Error(String(err)),
         fallbackSent,
       };
-    } catch (fallbackErr) {
+    } catch {
       return { ok: false, error: err instanceof Error ? err : new Error(String(err)) };
     }
   }
@@ -193,11 +268,9 @@ export async function sendCard(sock, jid, quotedMsg, opts) {
 
 /**
  * Prepare a media header for use in sendCard.
- * Call this before sendCard when you want an image header on the card.
- *
  * @param {object} sock
- * @param {Buffer|{ url: string }} imageSource   - Buffer or { url } object
- * @returns {Promise<object|undefined>} mediaHeader (pass to sendCard opts.mediaHeader)
+ * @param {Buffer|{ url: string }} imageSource
+ * @returns {Promise<object|undefined>}
  */
 export async function prepareImageHeader(sock, imageSource) {
   try {
@@ -210,27 +283,13 @@ export async function prepareImageHeader(sock, imageSource) {
   }
 }
 
-// ─── Specialised card senders ─────────────────────────────────────────────────
+// ─── Specialised senders ──────────────────────────────────────────────────────
 
-/**
- * Send a menu interactive card with an image header and a category select list.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} caption           - Pre-built caption text
- * @param {Array<{ title: string, description: string, rowId: string }>} rows
- * @param {string} botName
- * @param {Buffer|undefined} thumbBuf
- * @param {string} [thumbUrl]
- * @returns {Promise<{ ok: boolean }>}
- */
 export async function sendMenuCard(sock, jid, quotedMsg, caption, rows, botName, thumbBuf, thumbUrl) {
   const mediaHeader = await prepareImageHeader(
     sock,
     thumbBuf ?? (thumbUrl ? { url: thumbUrl } : null)
   );
-
   return sendCard(sock, jid, quotedMsg, {
     body:    caption,
     footer:  'Powered by YuzukiMD',
@@ -240,42 +299,18 @@ export async function sendMenuCard(sock, jid, quotedMsg, caption, rows, botName,
   });
 }
 
-/**
- * Send a command/plugin detail card.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} body              - Pre-built help text for this command
- * @param {string} usageText         - Full usage string (for copy button)
- * @param {string} commandName       - e.g. ".chatgpt" (for copy button)
- * @param {string} [category]        - For footer
- * @returns {Promise<{ ok: boolean }>}
- */
 export async function sendCommandCard(sock, jid, quotedMsg, body, usageText, commandName, category = 'Yuzuki MD') {
   return sendCard(sock, jid, quotedMsg, {
     body,
     footer:  category,
     buttons: [
-      copyButton('📋 Copy Usage', usageText),
+      copyButton('📋 Copy Usage',   usageText),
       copyButton('📝 Copy Command', commandName),
     ],
     fallback: body,
   });
 }
 
-/**
- * Send a category listing card with a select list.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} body              - Pre-built category body text
- * @param {Array<{ title: string, description: string, rowId: string }>} rows
- * @param {string} botName
- * @param {string} categoryTitle
- * @returns {Promise<{ ok: boolean }>}
- */
 export async function sendCategoryCard(sock, jid, quotedMsg, body, rows, botName, categoryTitle) {
   return sendCard(sock, jid, quotedMsg, {
     body,
@@ -285,18 +320,6 @@ export async function sendCategoryCard(sock, jid, quotedMsg, body, rows, botName
   });
 }
 
-/**
- * Send search results as an interactive select card.
- *
- * @param {object} sock
- * @param {string} jid
- * @param {object} quotedMsg
- * @param {string} caption           - Pre-built results caption
- * @param {Array<{ title: string, description: string, rowId: string }>} rows
- * @param {string} query
- * @param {number} resultCount
- * @returns {Promise<{ ok: boolean }>}
- */
 export async function sendSearchCard(sock, jid, quotedMsg, caption, rows, query, resultCount) {
   return sendCard(sock, jid, quotedMsg, {
     body:    caption,

@@ -1039,7 +1039,7 @@ break;
               `A feature-rich WhatsApp bot built with Baileys.\n\n` +
               `🔑 *Prefix:* ${settings.prefix ?? "."}\n` +
               `👑 *Owner:* 233533416608\n` +
-              `📦 *Platform:* Node.js + socketon (focashi fork)`
+              `📦 *Platform:* Node.js + cv3inx/baileys`
           },
           footer: {
             text: "Yuzuki MD"
