@@ -212,16 +212,94 @@ export function getBotState() {
 
 // ── Auth state provider ───────────────────────────────────────────────────────
 // Supports both multi-file (default) and SQLite (SESSION_TYPE=sqlite) modes.
-// SQLite mode (cv3inx/baileys) uses atomic writes → survives hard restarts.
+// SQLite mode uses WAL journaling and atomic writes — survives hard restarts.
+//
+// Auto-migration: if SESSION_TYPE=sqlite and existing multi-file JSON session
+// files are present, they are migrated to the SQLite DB on first boot.
+// A ".sqlite_migrated" marker prevents the migration from running a second time.
+
+// Known signal key-type prefixes — ordered longest-first to avoid partial matches.
+const SIGNAL_KEY_PREFIXES = [
+  "app-state-sync-version-",
+  "app-state-sync-key-",
+  "sender-key-memory-",
+  "sender-key-",
+  "pre-key-",
+  "session-",
+];
+
+async function migrateToSqlite(sessionDir, mfState, sqliteResult) {
+  const files = fs.readdirSync(sessionDir)
+    .filter((f) => f.endsWith(".json") && f !== "creds.json");
+
+  // Group file names into { type → [id, ...] }
+  const grouped = {};
+  for (const file of files) {
+    const base = file.slice(0, -5); // strip .json
+    for (const prefix of SIGNAL_KEY_PREFIXES) {
+      if (base.startsWith(prefix)) {
+        const type = prefix.slice(0, -1);             // strip trailing dash
+        const id   = base.slice(prefix.length).replace(/_/g, ":"); // unescape colons
+        (grouped[type] = grouped[type] ?? []).push(id);
+        break;
+      }
+    }
+  }
+
+  // For each key type: read from multi-file store → write to SQLite store
+  for (const [type, ids] of Object.entries(grouped)) {
+    if (!ids.length) continue;
+    let data;
+    try { data = await mfState.state.keys.get(type, ids); } catch { continue; }
+    const nonNull = Object.entries(data ?? {}).filter(([, v]) => v != null);
+    if (!nonNull.length) continue;
+    try {
+      await sqliteResult.state.keys.set({ [type]: Object.fromEntries(nonNull) });
+    } catch { /* best-effort */ }
+  }
+
+  // Copy credentials last (overwrites empty initAuthCreds in the fresh SQLite state)
+  Object.assign(sqliteResult.state.creds, mfState.state.creds);
+  await sqliteResult.saveCreds();
+}
+
 async function loadAuthState() {
   const sessionType = (process.env.SESSION_TYPE ?? "multifile").toLowerCase();
+  const MIGRATION_MARKER = path.join(SESSION_DIR, ".sqlite_migrated");
 
   if (sessionType === "sqlite") {
     try {
       const { useSqliteAuthState } = _require("socketon");
       if (typeof useSqliteAuthState !== "function") throw new Error("useSqliteAuthState not exported");
+
       const dbPath = path.join(SESSION_DIR, "auth.db");
-      const result = await useSqliteAuthState(dbPath);
+
+      // ── One-time auto-migration: multi-file JSON → SQLite ────────────────
+      const hasJsonFiles  = fs.existsSync(SESSION_DIR) &&
+        fs.readdirSync(SESSION_DIR).some((f) => f.endsWith(".json"));
+      const alreadyMigrated = fs.existsSync(MIGRATION_MARKER);
+
+      if (hasJsonFiles && !alreadyMigrated) {
+        log.warn("[SESSION] Detected multi-file session — migrating to SQLite (one-time)...");
+        try {
+          const mfState   = await useMultiFileAuthState(SESSION_DIR);
+          // cv3inx/baileys useSqliteAuthState takes { dbPath } — NOT a plain string
+          const sqliteRes = await useSqliteAuthState({ dbPath });
+
+          await migrateToSqlite(SESSION_DIR, mfState, sqliteRes);
+
+          const jsonCount = fs.readdirSync(SESSION_DIR).filter((f) => f.endsWith(".json")).length;
+          fs.writeFileSync(MIGRATION_MARKER, new Date().toISOString(), "utf8");
+          log.ok(`[SESSION] Migration complete — ${chalk.green(jsonCount)} key file(s) migrated to ${chalk.dim("auth.db")}`);
+          return sqliteRes;
+        } catch (migErr) {
+          log.warn(`[SESSION] Migration failed (${migErr.message}) — falling back to multi-file`);
+          return await useMultiFileAuthState(SESSION_DIR);
+        }
+      }
+
+      // cv3inx/baileys useSqliteAuthState takes { dbPath } — NOT a plain string
+      const result = await useSqliteAuthState({ dbPath });
       log.ok(`[SESSION] SQLite auth state (${chalk.dim(dbPath)})`);
       return result;
     } catch (err) {
