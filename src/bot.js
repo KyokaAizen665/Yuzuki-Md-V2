@@ -104,6 +104,7 @@ export const state = {
   botName: null,
   startedAt: null,
   pairingCode: null,
+  waitingForPairing: false,
   socket: null,
 };
 
@@ -419,7 +420,8 @@ export async function startBot() {
 
         console.log(`[PAIRING] Requesting pairing code for +${phoneNumber}`);
         pairingCode = await sock.requestPairingCode(phoneNumber);
-        console.log(`[PAIRING] Pairing code received ✓`);
+state.waitingForPairing = true;
+console.log(`[PAIRING] Pairing code received ✓`);
         break;
 
       } catch (err) {
@@ -488,11 +490,35 @@ export async function startBot() {
       //   default           → generic reconnect with 5 s delay
 
       if (statusCode === 401 || statusCode === DisconnectReason.loggedOut) {
-        log.err("[DISCONNECT] Logged out — clearing session and restarting");
-        if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-        setTimeout(() => startBot().catch(console.error), 3000);
-        return;
-      }
+
+  const registered = !!sock?.authState?.creds?.registered;
+
+  console.log("[DEBUG-401]", {
+    registered,
+    waitingForPairing: state.waitingForPairing,
+    statusCode
+  });
+
+  if (state.waitingForPairing && !registered) {
+    log.warn(
+      "[DISCONNECT] 401 received during pairing flow — preserving session"
+    );
+
+    setTimeout(() => startBot().catch(console.error), 3000);
+    return;
+  }
+
+  log.err(
+    "[DISCONNECT] Real logout detected — clearing session and restarting"
+  );
+
+  if (fs.existsSync(SESSION_DIR)) {
+    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+  }
+
+  setTimeout(() => startBot().catch(console.error), 3000);
+  return;
+}
 
       if (statusCode === 403) {
         log.err("[DISCONNECT] Account forbidden/banned — NOT reconnecting");
@@ -531,6 +557,7 @@ export async function startBot() {
     }
 
     if (connection === "open") {
+  state.waitingForPairing = false;
       state.connected   = true;
       state.pairingCode = null;
       state.startedAt   = new Date();
